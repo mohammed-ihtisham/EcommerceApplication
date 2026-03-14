@@ -1,4 +1,13 @@
 import type { NextConfig } from "next";
+import path from "path";
+
+// Stub for @henrylabs-interview/payments: the SDK resolves '../db-store/history.json'
+// from dist/utils/store.js via import.meta.url; that file is not shipped in the npm package.
+const paymentsDist = path.join(
+  process.cwd(),
+  "node_modules/@henrylabs-interview/payments/dist"
+);
+const historyJsonStub = path.join(process.cwd(), "src/lib/payment-history-stub.json");
 
 const nextConfig: NextConfig = {
   images: {
@@ -11,9 +20,13 @@ const nextConfig: NextConfig = {
   },
   transpilePackages: ["@henrylabs-interview/payments"],
   webpack: (config, { isServer }) => {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      // Resolve the SDK's internal history.json to our stub (file not in package)
+      [path.join(paymentsDist, "db-store/history.json")]: historyJsonStub,
+    };
     if (isServer) {
-      // Provide Node.js polyfills for Bun APIs used by the payment SDK
-      config.resolve = config.resolve || {};
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
