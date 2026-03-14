@@ -78,3 +78,11 @@ export async function findPaymentAttemptByCheckoutId(providerCheckoutId: string)
     include: { order: true },
   });
 }
+
+export async function findPaymentAttemptByOrderId(orderId: string) {
+  return prisma.paymentAttempt.findFirst({
+    where: { orderId },
+    orderBy: { createdAt: "desc" },
+    include: { order: true },
+  });
+}

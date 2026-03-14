@@ -29,33 +29,44 @@ export async function POST(req: NextRequest) {
     // Create order and order items
     const order = await createOrder(cartResult);
 
-    // Initiate payment with provider
+    // Initiate payment with provider (fast: 2 attempts then deferred → client polls)
     const paymentResult = await initiateCheckoutPayment(order.id);
 
-    if (!paymentResult.success) {
-      return NextResponse.json(
-        {
-          error: paymentResult.message,
-          retryable: paymentResult.retryable,
-          publicOrderId: order.publicOrderId,
-        },
-        { status: 502 }
-      );
+    if (paymentResult.success) {
+      logger.info("Checkout created successfully", {
+        orderId: order.id,
+        publicOrderId: order.publicOrderId,
+      });
+      return NextResponse.json({
+        status: "ready",
+        orderId: order.id,
+        publicOrderId: order.publicOrderId,
+        checkoutId: paymentResult.checkoutId,
+        paymentAttemptId: paymentResult.paymentAttemptId,
+        currency: cartResult.currency,
+        subtotal: cartResult.subtotal,
+      });
     }
 
-    logger.info("Checkout created successfully", {
-      orderId: order.id,
-      publicOrderId: order.publicOrderId,
-    });
+    // Deferred: return immediately so client can poll (no "Try again" needed)
+    if ("deferred" in paymentResult && paymentResult.deferred) {
+      return NextResponse.json({
+        status: "pending",
+        orderId: paymentResult.orderId,
+        publicOrderId: order.publicOrderId,
+        paymentAttemptId: paymentResult.paymentAttemptId,
+      });
+    }
 
-    return NextResponse.json({
-      orderId: order.id,
-      publicOrderId: order.publicOrderId,
-      checkoutId: paymentResult.checkoutId,
-      paymentAttemptId: paymentResult.paymentAttemptId,
-      currency: cartResult.currency,
-      subtotal: cartResult.subtotal,
-    });
+    return NextResponse.json(
+      {
+        error: paymentResult.message,
+        retryable: paymentResult.retryable,
+        code: paymentResult.code,
+        publicOrderId: order.publicOrderId,
+      },
+      { status: 502 }
+    );
   } catch (error) {
     logger.error("Checkout create error", { error: String(error) });
     return NextResponse.json(

@@ -3,8 +3,9 @@ import * as gateway from "@/server/payments/PaymentGateway";
 import { updateOrderStatus, updatePaymentAttemptStatus } from "@/server/orders/orderQueries";
 import { logger } from "@/lib/logger";
 
-const MAX_CREATE_RETRIES = 3;
-const RETRY_DELAY_MS = 800;
+/** Fast path: 2 attempts then accept deferred so client can poll (no long blocking). */
+const INITIAL_CREATE_ATTEMPTS = 2;
+const SINGLE_RETRY_DELAY_MS = 1000;
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,27 +22,27 @@ export async function initiateCheckoutPayment(orderId: string) {
   const paymentAttempt = order.paymentAttempts[0];
   if (!paymentAttempt) throw new Error("No payment attempt found");
 
-  // Retry deferred/retryable responses server-side to avoid user having to click "Try Again"
+  const createParams = {
+    amount: order.subtotalAmount,
+    currency: order.currency as "USD" | "EUR" | "JPY",
+    orderId,
+  };
+
   let lastResult: gateway.CreateCheckoutResult | null = null;
-  for (let attempt = 0; attempt < MAX_CREATE_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < INITIAL_CREATE_ATTEMPTS; attempt++) {
     if (attempt > 0) {
       logger.info("Retrying checkout creation", { orderId, attempt });
-      await delay(RETRY_DELAY_MS);
+      await delay(SINGLE_RETRY_DELAY_MS);
     }
 
-    const result = await gateway.createCheckout({
-      amount: order.subtotalAmount,
-      currency: order.currency as "USD" | "EUR" | "JPY",
-    });
+    const result = await gateway.createCheckout(createParams);
 
     if (result.success) {
       await prisma.paymentAttempt.update({
         where: { id: paymentAttempt.id },
         data: { providerCheckoutId: result.checkoutId },
       });
-
       await updateOrderStatus(orderId, "pending_payment");
-
       return {
         success: true as const,
         checkoutId: result.checkoutId,
@@ -50,19 +51,21 @@ export async function initiateCheckoutPayment(orderId: string) {
     }
 
     lastResult = result;
-
-    // Only retry if the failure is retryable
     if (!result.retryable) break;
+    // If deferred: return immediately so client can poll (no long blocking)
+    if (result.code === "deferred") {
+      logger.info("Checkout deferred, client will poll", { orderId });
+      return {
+        success: false as const,
+        deferred: true as const,
+        orderId,
+        paymentAttemptId: paymentAttempt.id,
+      };
+    }
   }
 
-  // All retries exhausted or non-retryable failure
   const result = lastResult!;
-
-  logger.warn("Checkout creation failed after retries", {
-    orderId,
-    code: result.code,
-    retryable: result.retryable,
-  });
+  logger.warn("Checkout creation failed", { orderId, code: result.code, retryable: result.retryable });
 
   if (!result.retryable) {
     await updatePaymentAttemptStatus(paymentAttempt.id, "failed", {
@@ -76,6 +79,68 @@ export async function initiateCheckoutPayment(orderId: string) {
     success: false as const,
     retryable: result.retryable,
     message: result.message,
+    code: result.code,
+  };
+}
+
+/** For polling: check if we have a checkoutId (from webhook or DB), or try one create. No long retries. */
+export async function getCheckoutStatus(orderId: string): Promise<
+  | { status: "ready"; checkoutId: string; paymentAttemptId: number }
+  | { status: "pending" }
+  | { status: "failed"; message: string; retryable: boolean }
+> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { paymentAttempts: { orderBy: { createdAt: "desc" }, take: 1 } },
+  });
+
+  if (!order) {
+    return { status: "failed", message: "Order not found", retryable: false };
+  }
+
+  const attempt = order.paymentAttempts[0];
+  if (!attempt) {
+    return { status: "failed", message: "No payment attempt", retryable: false };
+  }
+
+  // Already have checkoutId (set by webhook or earlier poll)
+  if (attempt.providerCheckoutId) {
+    await updateOrderStatus(orderId, "pending_payment");
+    return {
+      status: "ready",
+      checkoutId: attempt.providerCheckoutId,
+      paymentAttemptId: attempt.id,
+    };
+  }
+
+  // One quick try so we don't block the poll
+  const result = await gateway.createCheckout({
+    amount: order.subtotalAmount,
+    currency: order.currency as "USD" | "EUR" | "JPY",
+    orderId,
+  });
+
+  if (result.success) {
+    await prisma.paymentAttempt.update({
+      where: { id: attempt.id },
+      data: { providerCheckoutId: result.checkoutId },
+    });
+    await updateOrderStatus(orderId, "pending_payment");
+    return {
+      status: "ready",
+      checkoutId: result.checkoutId,
+      paymentAttemptId: attempt.id,
+    };
+  }
+
+  if (result.code === "deferred") {
+    return { status: "pending" };
+  }
+
+  return {
+    status: "failed",
+    message: result.message,
+    retryable: result.retryable,
   };
 }
 

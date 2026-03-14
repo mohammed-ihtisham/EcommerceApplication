@@ -25,13 +25,20 @@ export type ConfirmCheckoutResult =
 export async function createCheckout(params: {
   amount: number;
   currency: "USD" | "EUR" | "JPY";
+  /** Optional: orderId for webhook correlation. Sent without hyphens to avoid SDK fraud rules. */
+  orderId?: string;
 }): Promise<CreateCheckoutResult> {
   const processor = getProcessor();
 
   try {
+    // SDK rejects customerId containing '-' or length 32 (fraud). Use prefix so we get 33+ chars, no hyphen.
+    const customerId =
+      params.orderId != null ? "o" + params.orderId.replace(/-/g, "") : undefined;
+
     const response = await processor.checkout.create({
       amount: params.amount,
       currency: params.currency,
+      ...(customerId && { customerId }),
     });
 
     logger.info("Payment create response", {

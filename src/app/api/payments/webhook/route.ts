@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { findPaymentAttemptByCheckoutId, updateOrderStatus, updatePaymentAttemptStatus } from "@/server/orders/orderQueries";
+import {
+  findPaymentAttemptByCheckoutId,
+  findPaymentAttemptByOrderId,
+  updateOrderStatus,
+  updatePaymentAttemptStatus,
+} from "@/server/orders/orderQueries";
 import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
@@ -34,6 +39,26 @@ export async function POST(req: NextRequest) {
     });
 
     const checkoutId = event.data?.checkoutId;
+
+    // checkout.create.success (deferred): correlate by customerId (we send "o" + orderId without hyphens)
+    if (event.type === "checkout.create.success" && checkoutId) {
+      const customerId = event.data?.customerId as string | undefined;
+      if (typeof customerId === "string" && customerId.startsWith("o") && customerId.length === 33) {
+        const hex = customerId.slice(1);
+        const orderId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+        const attempt = await findPaymentAttemptByOrderId(orderId);
+        if (attempt && !attempt.providerCheckoutId) {
+          await prisma.paymentAttempt.update({
+            where: { id: attempt.id },
+            data: { providerCheckoutId: checkoutId },
+          });
+          await updateOrderStatus(attempt.orderId, "pending_payment");
+          logger.info("Checkout ID received via webhook (deferred create)", { orderId, checkoutId });
+        }
+      }
+      return NextResponse.json({ received: true });
+    }
+
     if (!checkoutId) {
       logger.warn("Webhook event missing checkoutId", { uid: event.uid });
       return NextResponse.json({ received: true });
