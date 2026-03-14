@@ -1,0 +1,26 @@
+const CURRENCY_CONFIG: Record<string, { locale: string; decimals: number }> = {
+  USD: { locale: "en-US", decimals: 2 },
+  EUR: { locale: "de-DE", decimals: 2 },
+  JPY: { locale: "ja-JP", decimals: 0 },
+};
+
+export function formatMoney(amount: number, currency: string): string {
+  const config = CURRENCY_CONFIG[currency];
+  if (!config) return `${amount} ${currency}`;
+
+  return new Intl.NumberFormat(config.locale, {
+    style: "currency",
+    currency,
+    minimumFractionDigits: config.decimals,
+  }).format(config.decimals > 0 ? amount / 100 : amount);
+}
+
+export function computeLineTotal(unitAmount: number, quantity: number): number {
+  return unitAmount * quantity;
+}
+
+export function computeSubtotal(
+  items: { unitAmount: number; quantity: number }[]
+): number {
+  return items.reduce((sum, item) => sum + computeLineTotal(item.unitAmount, item.quantity), 0);
+}

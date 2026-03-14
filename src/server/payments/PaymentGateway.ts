@@ -1,0 +1,158 @@
+import "@/lib/bun-polyfill";
+import { PaymentProcessor } from "@henrylabs-interview/payments";
+import { getPaymentApiKey } from "@/lib/env";
+import { logger } from "@/lib/logger";
+
+let _processor: PaymentProcessor | null = null;
+
+function getProcessor(): PaymentProcessor {
+  if (!_processor) {
+    _processor = new PaymentProcessor({ apiKey: getPaymentApiKey() });
+  }
+  return _processor;
+}
+
+export type CreateCheckoutResult =
+  | { success: true; checkoutId: string }
+  | { success: false; retryable: boolean; code: string; message: string };
+
+export type ConfirmCheckoutResult =
+  | { status: "paid"; confirmationId: string; amount: number; currency: string }
+  | { status: "processing" }
+  | { status: "failed"; retryable: boolean; message: string }
+  | { status: "fraud_rejected"; message: string };
+
+export async function createCheckout(params: {
+  amount: number;
+  currency: "USD" | "EUR" | "JPY";
+}): Promise<CreateCheckoutResult> {
+  const processor = getProcessor();
+
+  try {
+    const response = await processor.checkout.create({
+      amount: params.amount,
+      currency: params.currency,
+    });
+
+    logger.info("Payment create response", {
+      status: response.status,
+      substatus: response.substatus,
+      reqId: response._reqId,
+    });
+
+    if (response.status === "success" && response.substatus === "201-immediate") {
+      return { success: true, checkoutId: response.data.checkoutId };
+    }
+
+    if (response.status === "success" && response.substatus === "202-deferred") {
+      // Deferred creation — the checkout ID will come via webhook
+      return {
+        success: false,
+        retryable: true,
+        code: "deferred",
+        message: "Checkout creation deferred. Please retry.",
+      };
+    }
+
+    if (response.status === "failure") {
+      const isFraud = response.substatus === "502-fraud";
+      // All checkout creation failures are retryable — no card data has been
+      // submitted yet, so the user can always attempt a fresh checkout
+      return {
+        success: false,
+        retryable: true,
+        code: isFraud ? "fraud" : response.substatus,
+        message: response.message,
+      };
+    }
+
+    return {
+      success: false,
+      retryable: false,
+      code: "unknown",
+      message: "Unexpected response from payment provider",
+    };
+  } catch (error) {
+    logger.error("Payment create error", { error: String(error) });
+    return {
+      success: false,
+      retryable: true,
+      code: "sdk_error",
+      message: "Payment service unavailable. Please try again.",
+    };
+  }
+}
+
+export async function confirmCheckout(params: {
+  checkoutId: string;
+  paymentToken: string;
+}): Promise<ConfirmCheckoutResult> {
+  const processor = getProcessor();
+
+  try {
+    const response = await processor.checkout.confirm({
+      checkoutId: params.checkoutId,
+      type: "embedded",
+      data: { paymentToken: params.paymentToken },
+    });
+
+    logger.info("Payment confirm response", {
+      status: response.status,
+      substatus: response.substatus,
+      reqId: response._reqId,
+    });
+
+    if (response.status === "success" && response.substatus === "201-immediate") {
+      return {
+        status: "paid",
+        confirmationId: response.data.confirmationId,
+        amount: response.data.amount,
+        currency: response.data.currency,
+      };
+    }
+
+    if (response.status === "success" && response.substatus === "202-deferred") {
+      return { status: "processing" };
+    }
+
+    if (response.status === "failure") {
+      if (response.substatus === "502-fraud") {
+        return { status: "fraud_rejected", message: response.message };
+      }
+      const retryable = response.substatus === "503-retry";
+      return {
+        status: "failed",
+        retryable,
+        message: response.message,
+      };
+    }
+
+    return { status: "processing" };
+  } catch (error) {
+    logger.error("Payment confirm error", { error: String(error) });
+    return {
+      status: "failed",
+      retryable: true,
+      message: "Payment service unavailable. Please try again.",
+    };
+  }
+}
+
+export async function registerWebhook(url: string, secret?: string): Promise<boolean> {
+  const processor = getProcessor();
+  try {
+    return await processor.webhooks.createEndpoint({
+      url,
+      events: [
+        "checkout.create.success",
+        "checkout.create.failure",
+        "checkout.confirm.success",
+        "checkout.confirm.failure",
+      ],
+      secret,
+    });
+  } catch (error) {
+    logger.error("Webhook registration error", { error: String(error) });
+    return false;
+  }
+}
