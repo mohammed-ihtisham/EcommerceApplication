@@ -1,72 +1,68 @@
 "use client";
 
 import { useState } from "react";
-import { useCart } from "./CartProvider";
 import { formatMoney } from "@/lib/money";
+import { useCart } from "./CartProvider";
 
-interface ProductCardProps {
+interface Product {
   id: number;
   name: string;
-  description: string;
   imgUrl: string;
   amount: number;
   currency: string;
 }
 
-export default function ProductCard({
-  id,
-  name,
-  description,
-  imgUrl,
-  amount,
-  currency,
-}: ProductCardProps) {
+export default function ProductCard({ id, name, imgUrl, amount, currency }: Product) {
   const { addItem } = useCart();
-  const [feedback, setFeedback] = useState<string | null>(null);
   const [added, setAdded] = useState(false);
 
-  function handleAdd() {
+  function handleAdd(e: React.MouseEvent) {
+    e.preventDefault(); 
+    e.stopPropagation();
+
     const error = addItem({ id, name, imgUrl, amount, currency });
-    if (error) {
-      setFeedback(error);
-      setTimeout(() => setFeedback(null), 4000);
-    } else {
+    if (!error) {
       setAdded(true);
       setTimeout(() => setAdded(false), 1500);
     }
   }
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
+    <div className="group flex cursor-pointer flex-col">
+      <div className="relative mb-4 aspect-square w-full overflow-hidden bg-[#F4F4F4]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imgUrl}
           alt={name}
-          className="absolute inset-0 h-full w-full object-cover mix-blend-multiply transition-transform duration-300 group-hover:scale-105"
+          className="absolute inset-0 h-full w-full object-contain p-6 mix-blend-multiply transition-transform duration-700 ease-out group-hover:scale-95 group-hover:-translate-y-3"
         />
-      </div>
-      <div className="flex flex-1 flex-col p-5">
-        <h3 className="text-lg font-semibold text-gray-900">{name}</h3>
-        <p className="mt-1 flex-1 text-sm text-gray-500 line-clamp-2">{description}</p>
-        <div className="mt-4 flex items-center justify-between">
-          <span className="text-lg font-bold text-gray-900">
-            {formatMoney(amount, currency)}
-          </span>
+        <div className="absolute bottom-3 left-1/2 flex w-full -translate-x-1/2 translate-y-4 items-center justify-center opacity-0 transition-all duration-300 ease-out group-hover:translate-y-0 group-hover:opacity-100">
           <button
+            type="button"
             onClick={handleAdd}
-            className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-              added
-                ? "bg-green-600 text-white"
-                : "bg-gray-900 text-white hover:bg-gray-700"
-            }`}
+            className="flex items-center gap-1.5 rounded-full bg-white/95 px-4 py-2 text-[10px] font-semibold tracking-[0.16em] text-gray-900 shadow-sm backdrop-blur-sm transition-all hover:bg-black hover:text-white hover:scale-105 focus:outline-none"
           >
-            {added ? "Added!" : "Add to Cart"}
+            {added ? (
+              <>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                ADDED
+              </>
+            ) : (
+              "+ QUICK ADD"
+            )}
           </button>
         </div>
-        {feedback && (
-          <p className="mt-2 text-xs text-red-600">{feedback}</p>
-        )}
+      </div>
+
+      <div className="flex flex-col">
+        <h3 className="text-[15px] font-medium tracking-wide text-gray-900">
+          {name}
+        </h3>
+        <p className="mt-1 text-[15px] text-gray-500">
+          {formatMoney(amount, currency)}
+        </p>
       </div>
     </div>
   );

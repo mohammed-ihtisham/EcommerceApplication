@@ -23,7 +23,10 @@ export default function LandingProductCard({
   const { addItem } = useCart();
   const [added, setAdded] = useState(false);
 
-  function handleAdd() {
+  function handleAdd(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
     const error = addItem({ id, name, imgUrl, amount, currency });
     if (!error) {
       setAdded(true);
@@ -33,29 +36,43 @@ export default function LandingProductCard({
 
   return (
     <article className="group flex cursor-pointer flex-col transition-transform duration-300 hover:-translate-y-1">
-      {/* Grey Image Container */}
       <div className="relative aspect-square w-full overflow-hidden bg-[#F3F3F3] flex flex-col transition-shadow duration-300 group-hover:shadow-md">
         <div className="relative flex-1 w-full p-6 overflow-hidden">
           <Image
             src={imgUrl}
             alt={name}
             fill
-            className="object-contain mix-blend-multiply transition-transform duration-300 group-hover:scale-105"
+            className="object-contain mix-blend-multiply transition-transform duration-300 group-hover:scale-90 group-hover:-translate-y-3"
             sizes="(max-width: 768px) 100vw, 25vw"
           />
         </div>
 
-        {/* Add to Cart Button - Positioned at bottom of grey box */}
-        <div className="pb-5 text-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center opacity-0 translate-y-2 transition-all duration-300 ease-out group-hover:opacity-100 group-hover:translate-y-0">
           <button
             type="button"
             onClick={handleAdd}
-            className="text-[11px] font-medium uppercase tracking-widest text-gray-500 transition-colors duration-200 hover:text-black group-hover:text-black"
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-white/95 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-900 shadow-sm backdrop-blur-sm transition-all hover:bg-black hover:text-white hover:scale-105"
           >
-            {added ? "Added to Cart" : "Add to Cart"}
-            <span className="ml-1" aria-hidden>
-              →
-            </span>
+            {added ? (
+              <>
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+                Added
+              </>
+            ) : (
+              "+ Quick Add"
+            )}
           </button>
         </div>
       </div>
