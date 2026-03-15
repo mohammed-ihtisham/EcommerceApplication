@@ -12,7 +12,7 @@ export function formatMoney(amount: number, currency: string): string {
     style: "currency",
     currency,
     minimumFractionDigits: config.decimals,
-  }).format(config.decimals > 0 ? amount / 100 : amount);
+  }).format(amount);
 }
 
 export function computeLineTotal(unitAmount: number, quantity: number): number {
