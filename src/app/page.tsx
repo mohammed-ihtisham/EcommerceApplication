@@ -85,15 +85,15 @@ export default function LandingPage() {
           <h2 className="text-center font-serif text-2xl font-medium tracking-tight text-black md:text-3xl">
             Discover Luxury Craftsmanship
           </h2>
-        <div className="relative mt-12 aspect-[16/9] w-full overflow-hidden bg-gray-200">
-          <Image
-            src="/hero-footer.png"
-            alt="Hands crafting leather footwear"
-            fill
-            className="object-cover grayscale"
-            sizes="(max-width: 1280px) 100vw, 1280px"
-          />
-        </div>
+          <div className="relative mt-12 aspect-[16/6] w-full overflow-hidden bg-gray-200">
+            <Image
+              src="/hero-footer.png"
+              alt="Hands crafting leather footwear"
+              fill
+              className="object-cover grayscale"
+              sizes="(max-width: 1280px) 100vw, 1280px"
+            />
+          </div>
         </div>
       </section>
 
@@ -111,7 +111,13 @@ export default function LandingPage() {
               href="/catalog"
               className="link-underline-lr text-xs font-medium uppercase tracking-wide text-black"
             >
-              Shop
+              Catalog
+            </Link>
+            <Link
+              href="/catalog"
+              className="link-underline-lr text-xs font-medium uppercase tracking-wide text-black"
+            >
+              Collection
             </Link>
             <Link
               href="/#about"
@@ -125,14 +131,6 @@ export default function LandingPage() {
             >
               Contact
             </Link>
-            <a
-              href="https://instagram.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="link-underline-lr text-xs font-medium uppercase tracking-wide text-black"
-            >
-              Instagram
-            </a>
           </nav>
         </div>
       </footer>

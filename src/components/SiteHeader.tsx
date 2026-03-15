@@ -12,13 +12,13 @@ export default function SiteHeader() {
             href="/catalog"
             className="link-underline-lr text-xs font-medium uppercase tracking-wide text-gray-900"
           >
-            Shop
+            Catalog
           </Link>
           <Link
             href="/catalog"
             className="link-underline-lr text-xs font-medium uppercase tracking-wide text-gray-900"
           >
-            Collections
+            Collection
           </Link>
           <Link
             href="/#about"
