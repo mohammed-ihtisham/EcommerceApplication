@@ -25,14 +25,14 @@ export default function CartItemRow({ item }: { item: CartItemData }) {
       <div className="flex items-center gap-2">
         <button
           onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-          className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
         >
           -
         </button>
         <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
         <button
           onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-          className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
         >
           +
         </button>
@@ -42,7 +42,7 @@ export default function CartItemRow({ item }: { item: CartItemData }) {
       </span>
       <button
         onClick={() => removeItem(item.productId)}
-        className="text-gray-400 hover:text-red-500"
+        className="cursor-pointer text-gray-400 hover:text-red-500"
         aria-label={`Remove ${item.name}`}
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

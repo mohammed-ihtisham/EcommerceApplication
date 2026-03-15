@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
+import { Cormorant_Garamond } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/components/CartProvider";
+import SiteHeader from "@/components/SiteHeader";
+
+const cormorant = Cormorant_Garamond({
+  weight: ["400", "500", "600"],
+  subsets: ["latin"],
+  variable: "--font-serif",
+});
 
 export const metadata: Metadata = {
   title: "Virellio Shoes",
@@ -13,17 +21,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-gray-50 text-gray-900 antialiased">
+    <html lang="en" className={cormorant.variable}>
+      <body className="bg-white font-sans text-gray-900 antialiased">
         <CartProvider>
-          <header className="border-b border-gray-200 bg-white">
-            <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-              <a href="/" className="text-2xl font-bold tracking-tight">
-                VIRELLIO
-              </a>
-            </div>
-          </header>
-          <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+          <SiteHeader />
+          <main>{children}</main>
         </CartProvider>
       </body>
     </html>

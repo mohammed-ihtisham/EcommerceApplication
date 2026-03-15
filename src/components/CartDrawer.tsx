@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { AiOutlineShopping } from "react-icons/ai";
 import { useCart } from "./CartProvider";
 import CartItemRow from "./CartItemRow";
 import { formatMoney } from "@/lib/money";
 import { useRouter } from "next/navigation";
 
-export default function CartDrawer() {
+export default function CartDrawer({
+  variant = "default",
+}: {
+  variant?: "default" | "header";
+}) {
   const { items, totalItems, subtotal, currency, clearCart } = useCart();
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -16,10 +21,26 @@ export default function CartDrawer() {
       {/* Cart button */}
       <button
         onClick={() => setOpen(true)}
-        className="relative rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+        className={
+          variant === "header"
+            ? "cursor-pointer text-xs font-medium uppercase tracking-wide text-gray-900 transition-colors"
+            : "relative cursor-pointer rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+        }
       >
-        Cart
-        {totalItems > 0 && (
+        {variant === "header" ? (
+          <span className="flex h-6 items-center gap-1.5">
+            <span className="flex h-6 items-center text-xs">CART</span>
+            <span className="relative flex h-6 shrink-0 -translate-y-0.5 items-center justify-center">
+              <AiOutlineShopping className="h-6 w-6" aria-hidden />
+              <span className="absolute -right-1 top-0 flex h-3 w-3 min-w-3 items-center justify-center rounded-full bg-gray-900 text-[8px] font-bold leading-none text-white">
+                {totalItems}
+              </span>
+            </span>
+          </span>
+        ) : (
+          "Cart"
+        )}
+        {variant === "default" && totalItems > 0 && (
           <span className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-gray-900 text-[10px] font-bold text-white">
             {totalItems}
           </span>
@@ -46,7 +67,7 @@ export default function CartDrawer() {
             <h2 className="text-lg font-semibold">Your Cart ({totalItems})</h2>
             <button
               onClick={() => setOpen(false)}
-              className="text-gray-400 hover:text-gray-600"
+              className="cursor-pointer text-gray-400 hover:text-gray-600"
             >
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -77,13 +98,13 @@ export default function CartDrawer() {
                   setOpen(false);
                   router.push("/checkout");
                 }}
-                className="w-full rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-700"
+                className="w-full cursor-pointer rounded-lg bg-gray-900 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-700"
               >
                 Checkout
               </button>
               <button
                 onClick={clearCart}
-                className="mt-2 w-full rounded-lg border border-gray-200 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                className="mt-2 w-full cursor-pointer rounded-lg border border-gray-200 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50"
               >
                 Clear Cart
               </button>

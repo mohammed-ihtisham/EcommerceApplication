@@ -43,7 +43,7 @@ export default function ProductCard({
         <img
           src={imgUrl}
           alt={name}
-          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          className="absolute inset-0 h-full w-full object-cover mix-blend-multiply transition-transform duration-300 group-hover:scale-105"
         />
       </div>
       <div className="flex flex-1 flex-col p-5">
@@ -55,7 +55,7 @@ export default function ProductCard({
           </span>
           <button
             onClick={handleAdd}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               added
                 ? "bg-green-600 text-white"
                 : "bg-gray-900 text-white hover:bg-gray-700"
