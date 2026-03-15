@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Deferred: return immediately so client can poll (no "Try again" needed)
-    if ("deferred" in paymentResult && paymentResult.deferred) {
+    // Retryable failure (including deferred): return pending so client can poll
+    if ("pending" in paymentResult && paymentResult.pending) {
       return NextResponse.json({
         status: "pending",
         orderId: paymentResult.orderId,
@@ -58,10 +58,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Non-retryable terminal failure
     return NextResponse.json(
       {
-        error: paymentResult.message,
-        retryable: paymentResult.retryable,
+        error: paymentResult.message ?? "Payment failed",
+        retryable: false,
         code: paymentResult.code,
         publicOrderId: order.publicOrderId,
       },

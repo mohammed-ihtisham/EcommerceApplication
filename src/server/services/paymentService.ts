@@ -3,12 +3,57 @@ import * as gateway from "@/server/payments/PaymentGateway";
 import { updateOrderStatus, updatePaymentAttemptStatus } from "@/server/orders/orderQueries";
 import { logger } from "@/lib/logger";
 
-/** Fast path: 2 attempts then accept deferred so client can poll (no long blocking). */
-const INITIAL_CREATE_ATTEMPTS = 2;
-const SINGLE_RETRY_DELAY_MS = 1000;
+/**
+ * Parallel-race retry strategy: fire multiple gateway calls concurrently,
+ * take the first success. Much faster than sequential retries.
+ */
+const PARALLEL_BATCH_SIZE = 3;       // calls per batch
+const CREATE_BATCHES = 3;            // max batches for creation (9 total attempts)
+const CONFIRM_BATCHES = 3;           // max batches for confirmation (9 total attempts)
+const BATCH_GAP_MS = 800;            // pause between batches
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Race N gateway calls in parallel. Returns the first successful result,
+ * or the last failure if all fail. Terminal results (non-retryable) short-circuit.
+ */
+async function raceCreate(
+  params: Parameters<typeof gateway.createCheckout>[0],
+  count: number,
+): Promise<gateway.CreateCheckoutResult> {
+  const results = await Promise.all(
+    Array.from({ length: count }, () => gateway.createCheckout(params)),
+  );
+  // Return first success
+  const success = results.find((r) => r.success);
+  if (success) return success;
+  // Return first non-retryable (terminal)
+  const terminal = results.find((r) => !r.success && !r.retryable);
+  if (terminal) return terminal;
+  // All retryable failures — return last one
+  return results[results.length - 1];
+}
+
+async function raceConfirm(
+  params: Parameters<typeof gateway.confirmCheckout>[0],
+  count: number,
+): Promise<gateway.ConfirmCheckoutResult> {
+  const results = await Promise.all(
+    Array.from({ length: count }, () => gateway.confirmCheckout(params)),
+  );
+  // Return first "paid"
+  const paid = results.find((r) => r.status === "paid");
+  if (paid) return paid;
+  // Return first terminal (fraud / non-retryable failure)
+  const terminal = results.find(
+    (r) => r.status === "fraud_rejected" || (r.status === "failed" && !r.retryable),
+  );
+  if (terminal) return terminal;
+  // All deferred/retryable — return last
+  return results[results.length - 1];
 }
 
 export async function initiateCheckoutPayment(orderId: string) {
@@ -28,14 +73,16 @@ export async function initiateCheckoutPayment(orderId: string) {
     orderId,
   };
 
+  // Fire parallel batches — much faster than sequential retries
   let lastResult: gateway.CreateCheckoutResult | null = null;
-  for (let attempt = 0; attempt < INITIAL_CREATE_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      logger.info("Retrying checkout creation", { orderId, attempt });
-      await delay(SINGLE_RETRY_DELAY_MS);
+  for (let batch = 0; batch < CREATE_BATCHES; batch++) {
+    if (batch > 0) {
+      logger.info("Create batch retry", { orderId, batch });
+      await delay(BATCH_GAP_MS);
     }
 
-    const result = await gateway.createCheckout(createParams);
+    const result = await raceCreate(createParams, PARALLEL_BATCH_SIZE);
+    logger.info("Create batch result", { orderId, batch, success: result.success });
 
     if (result.success) {
       await prisma.paymentAttempt.update({
@@ -52,20 +99,15 @@ export async function initiateCheckoutPayment(orderId: string) {
 
     lastResult = result;
     if (!result.retryable) break;
-    // If deferred: return immediately so client can poll (no long blocking)
-    if (result.code === "deferred") {
-      logger.info("Checkout deferred, client will poll", { orderId });
-      return {
-        success: false as const,
-        deferred: true as const,
-        orderId,
-        paymentAttemptId: paymentAttempt.id,
-      };
-    }
   }
 
   const result = lastResult!;
-  logger.warn("Checkout creation failed", { orderId, code: result.code, retryable: result.retryable });
+  logger.warn("Checkout creation exhausted all batches", {
+    orderId,
+    code: result.code,
+    retryable: result.retryable,
+    totalAttempts: CREATE_BATCHES * PARALLEL_BATCH_SIZE,
+  });
 
   if (!result.retryable) {
     await updatePaymentAttemptStatus(paymentAttempt.id, "failed", {
@@ -73,13 +115,20 @@ export async function initiateCheckoutPayment(orderId: string) {
       failureMessage: result.message,
     });
     await updateOrderStatus(orderId, "payment_failed");
+    return {
+      success: false as const,
+      retryable: false,
+      message: result.message,
+      code: result.code,
+    };
   }
 
+  // Retryable failure — return pending so client can poll instead of seeing an error
   return {
     success: false as const,
-    retryable: result.retryable,
-    message: result.message,
-    code: result.code,
+    pending: true as const,
+    orderId,
+    paymentAttemptId: paymentAttempt.id,
   };
 }
 
@@ -113,12 +162,11 @@ export async function getCheckoutStatus(orderId: string): Promise<
     };
   }
 
-  // One quick try so we don't block the poll
-  const result = await gateway.createCheckout({
-    amount: order.subtotalAmount,
-    currency: order.currency as "USD" | "EUR" | "JPY",
-    orderId,
-  });
+  // Fire parallel attempts per poll — faster than a single try
+  const result = await raceCreate(
+    { amount: order.subtotalAmount, currency: order.currency as "USD" | "EUR" | "JPY", orderId },
+    PARALLEL_BATCH_SIZE,
+  );
 
   if (result.success) {
     await prisma.paymentAttempt.update({
@@ -133,14 +181,15 @@ export async function getCheckoutStatus(orderId: string): Promise<
     };
   }
 
-  if (result.code === "deferred") {
+  // All retryable — tell client to keep polling
+  if (result.retryable) {
     return { status: "pending" };
   }
 
   return {
     status: "failed",
     message: result.message,
-    retryable: result.retryable,
+    retryable: false,
   };
 }
 
@@ -169,19 +218,22 @@ export async function confirmCheckoutPayment(
   // Mark as confirming
   await updatePaymentAttemptStatus(paymentAttemptId, "confirming");
 
-  const result = await gateway.confirmCheckout({
-    checkoutId: attempt.providerCheckoutId,
-    paymentToken,
-  });
+  // Parallel-race confirm: fire multiple calls concurrently per batch.
+  // Gateway often returns 202-deferred — racing increases chance of 201-immediate.
+  const confirmParams = { checkoutId: attempt.providerCheckoutId, paymentToken };
+  let lastResult: gateway.ConfirmCheckoutResult | null = null;
 
-  logger.info("Payment confirmation result", {
-    orderId,
-    paymentAttemptId,
-    status: result.status,
-  });
+  for (let batch = 0; batch < CONFIRM_BATCHES; batch++) {
+    if (batch > 0) {
+      logger.info("Confirm batch retry", { orderId, batch });
+      await delay(BATCH_GAP_MS);
+    }
 
-  switch (result.status) {
-    case "paid": {
+    const result = await raceConfirm(confirmParams, PARALLEL_BATCH_SIZE);
+    logger.info("Confirm batch result", { orderId, batch, status: result.status });
+
+    // Immediate success — done!
+    if (result.status === "paid") {
       await updatePaymentAttemptStatus(paymentAttemptId, "succeeded", {
         providerPaymentId: result.confirmationId,
       });
@@ -189,13 +241,8 @@ export async function confirmCheckoutPayment(
       return { status: "paid" as const, publicOrderId: attempt.order.publicOrderId };
     }
 
-    case "processing": {
-      await updatePaymentAttemptStatus(paymentAttemptId, "processing");
-      await updateOrderStatus(orderId, "payment_processing");
-      return { status: "processing" as const, publicOrderId: attempt.order.publicOrderId };
-    }
-
-    case "fraud_rejected": {
+    // Fraud rejection — terminal, don't retry
+    if (result.status === "fraud_rejected") {
       await updatePaymentAttemptStatus(paymentAttemptId, "fraud_rejected", {
         failureMessage: result.message,
       });
@@ -203,22 +250,51 @@ export async function confirmCheckoutPayment(
       return { status: "fraud_rejected" as const, publicOrderId: attempt.order.publicOrderId };
     }
 
-    case "failed": {
+    // Non-retryable failure — terminal
+    if (result.status === "failed" && !result.retryable) {
       await updatePaymentAttemptStatus(paymentAttemptId, "failed", {
         failureMessage: result.message,
       });
-      if (!result.retryable) {
-        await updateOrderStatus(orderId, "payment_failed");
-      }
+      await updateOrderStatus(orderId, "payment_failed");
       return {
         status: "failed" as const,
-        retryable: result.retryable,
+        retryable: false,
         publicOrderId: attempt.order.publicOrderId,
         message: result.message,
       };
     }
 
-    default:
-      return { status: "processing" as const, publicOrderId: attempt.order.publicOrderId };
+    // Retryable (processing/deferred, retryable failure) — next batch
+    lastResult = result;
   }
+
+  // Exhausted all confirm batches — accept whatever we got last
+  logger.warn("Confirm batches exhausted", {
+    orderId,
+    totalAttempts: CONFIRM_BATCHES * PARALLEL_BATCH_SIZE,
+    lastStatus: lastResult?.status,
+  });
+
+  if (lastResult?.status === "processing") {
+    await updatePaymentAttemptStatus(paymentAttemptId, "processing");
+    await updateOrderStatus(orderId, "payment_processing");
+    return { status: "processing" as const, publicOrderId: attempt.order.publicOrderId };
+  }
+
+  if (lastResult?.status === "failed") {
+    await updatePaymentAttemptStatus(paymentAttemptId, "failed", {
+      failureMessage: lastResult.message,
+    });
+    return {
+      status: "failed" as const,
+      retryable: true,
+      publicOrderId: attempt.order.publicOrderId,
+      message: lastResult.message,
+    };
+  }
+
+  // Fallback
+  await updatePaymentAttemptStatus(paymentAttemptId, "processing");
+  await updateOrderStatus(orderId, "payment_processing");
+  return { status: "processing" as const, publicOrderId: attempt.order.publicOrderId };
 }

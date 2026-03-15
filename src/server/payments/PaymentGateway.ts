@@ -62,14 +62,17 @@ export async function createCheckout(params: {
     }
 
     if (response.status === "failure") {
-      const isFraud = response.substatus === "502-fraud";
-      // All checkout creation failures are retryable — no card data has been
-      // submitted yet, so the user can always attempt a fresh checkout
+      // Only transient errors are retryable. 502-fraud at creation stage is a
+      // false positive (no card data yet). 501-not-supported etc. are terminal.
+      const RETRYABLE_SUBSTATUSES = new Set(["503-retry", "502-fraud", "500-error"]);
+      const retryable = RETRYABLE_SUBSTATUSES.has(response.substatus);
       return {
         success: false,
-        retryable: true,
-        code: isFraud ? "fraud" : response.substatus,
-        message: response.message,
+        retryable,
+        code: response.substatus === "502-fraud" ? "transient" : response.substatus,
+        message: retryable
+          ? "Payment service temporarily unavailable"
+          : response.message,
       };
     }
 
