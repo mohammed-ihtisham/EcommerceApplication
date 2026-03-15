@@ -8,6 +8,7 @@ export const ProductSchema = z.object({
   imgUrl: z.string().url(),
   amount: z.number().int().positive(),
   currency: z.string(),
+  keywords: z.array(z.string()),
 });
 
 export type Product = z.infer<typeof ProductSchema>;
