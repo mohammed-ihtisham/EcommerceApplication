@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { AiOutlineShopping } from "react-icons/ai";
 import { useCart } from "./CartProvider";
 import CartItemRow from "./CartItemRow";
@@ -12,15 +11,15 @@ export default function CartDrawer({
 }: {
   variant?: "default" | "header";
 }) {
-  const { items, totalItems, subtotal, currency, clearCart } = useCart();
-  const [open, setOpen] = useState(false);
+  const { items, totalItems, subtotal, currency, clearCart, isCartOpen, openCart, closeCart } =
+    useCart();
   const router = useRouter();
 
   return (
     <>
       {/* Cart button */}
       <button
-        onClick={() => setOpen(true)}
+        onClick={openCart}
         className={
           variant === "header"
             ? "cursor-pointer text-xs font-medium uppercase tracking-wide text-gray-900 transition-colors"
@@ -48,17 +47,17 @@ export default function CartDrawer({
       </button>
 
       {/* Backdrop */}
-      {open && (
+      {isCartOpen && (
         <div
           className="fixed inset-0 z-40 bg-gradient-to-l from-black/40 via-black/30 to-black/10 backdrop-blur-sm transition-opacity"
-          onClick={() => setOpen(false)}
+          onClick={closeCart}
         />
       )}
 
       {/* Drawer */}
       <div
-        className={`fixed right-0 top-0 z-50 h-full w-full max-w-md transform bg-white/95 shadow-2xl ring-1 ring-black/5 transition-transform duration-300 ease-out sm:rounded-l-[2rem] ${
-          open ? "translate-x-0" : "translate-x-full"
+        className={`fixed right-0 top-0 z-50 h-full w-full max-w-md transform overflow-hidden rounded-l-[2rem] bg-white/95 shadow-2xl ring-1 ring-black/5 transition-transform duration-300 ease-out ${
+          isCartOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="flex h-full flex-col">
@@ -79,7 +78,7 @@ export default function CartDrawer({
               </p>
             </div>
             <button
-              onClick={() => setOpen(false)}
+              onClick={closeCart}
               className="ml-4 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-gray-50 text-gray-400 shadow-sm transition-colors hover:bg-gray-100 hover:text-gray-700"
             >
               <svg
@@ -110,7 +109,7 @@ export default function CartDrawer({
                   </p>
                 </div>
                 <button
-                  onClick={() => setOpen(false)}
+                  onClick={closeCart}
                   className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-8 py-3 text-xs font-semibold uppercase tracking-wider text-gray-900 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:shadow focus-visible:outline-none"
                 >
                   Continue shopping
@@ -142,7 +141,7 @@ export default function CartDrawer({
               </p>
               <button
                 onClick={() => {
-                  setOpen(false);
+                  closeCart();
                   router.push("/checkout");
                 }}
                 className="w-full cursor-pointer rounded-full bg-gray-900 py-3.5 text-sm font-semibold text-white shadow-md transition hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
@@ -151,7 +150,7 @@ export default function CartDrawer({
               </button>
               <button
                 onClick={clearCart}
-                className="mt-3 w-full cursor-pointer text-xs font-medium text-gray-400 underline decoration-gray-200 underline-offset-4 transition-colors hover:text-gray-600"
+                className="mt-3 w-full cursor-pointer rounded-full border border-gray-200 bg-white py-3.5 text-sm font-semibold text-gray-900 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
               >
                 Clear cart
               </button>
