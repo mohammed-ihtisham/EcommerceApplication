@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import {
   findPaymentAttemptByCheckoutId,
   findPaymentAttemptByOrderId,
-  updateOrderStatus,
-  updatePaymentAttemptStatus,
+  updatePaymentAndOrderStatus,
+  ConcurrentModificationError,
 } from "@/server/orders/orderQueries";
 import { logger } from "@/lib/logger";
 
@@ -48,12 +48,21 @@ export async function POST(req: NextRequest) {
         const orderId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
         const attempt = await findPaymentAttemptByOrderId(orderId);
         if (attempt && !attempt.providerCheckoutId) {
-          await prisma.paymentAttempt.update({
-            where: { id: attempt.id },
-            data: { providerCheckoutId: checkoutId },
+          await prisma.$transaction(async (tx) => {
+            await tx.paymentAttempt.updateMany({
+              where: { id: attempt.id, version: attempt.version },
+              data: { providerCheckoutId: checkoutId, version: { increment: 1 } },
+            });
+            await tx.order.updateMany({
+              where: { id: attempt.orderId, version: attempt.order.version },
+              data: { status: "pending_payment", version: { increment: 1 } },
+            });
           });
-          await updateOrderStatus(attempt.orderId, "pending_payment");
-          logger.info("Checkout ID received via webhook (deferred create)", { orderId, checkoutId });
+          logger.info("Checkout ID received via webhook (deferred create)", {
+            orderId,
+            checkoutId,
+            paymentAttemptId: attempt.id,
+          });
         }
       }
       return NextResponse.json({ received: true });
@@ -70,41 +79,57 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true });
     }
 
-    // Map webhook event type to state transitions
-    switch (event.type) {
-      case "checkout.confirm.success": {
-        const confirmationId = event.data?.confirmationId;
-        await updatePaymentAttemptStatus(attempt.id, "succeeded", {
-          providerPaymentId: confirmationId,
-        });
-        await updateOrderStatus(attempt.orderId, "paid");
-        logger.info("Order paid via webhook", { orderId: attempt.orderId });
-        break;
-      }
-
-      case "checkout.confirm.failure": {
-        const isFraud = event.data?.reason === "fraud";
-        if (isFraud) {
-          await updatePaymentAttemptStatus(attempt.id, "fraud_rejected", {
-            failureMessage: event.data?.message || "Fraud detected",
+    // Map webhook event type to state transitions (transactional)
+    try {
+      switch (event.type) {
+        case "checkout.confirm.success": {
+          const confirmationId = event.data?.confirmationId;
+          await updatePaymentAndOrderStatus(attempt.id, "succeeded", attempt.orderId, "paid", {
+            providerPaymentId: confirmationId,
           });
-          await updateOrderStatus(attempt.orderId, "fraud_rejected");
-        } else {
-          await updatePaymentAttemptStatus(attempt.id, "failed", {
-            failureCode: event.data?.code,
-            failureMessage: event.data?.message || "Payment failed",
+          logger.info("Order paid via webhook", {
+            orderId: attempt.orderId,
+            paymentAttemptId: attempt.id,
+            providerCheckoutId: checkoutId,
           });
-          await updateOrderStatus(attempt.orderId, "payment_failed");
+          break;
         }
-        logger.info("Order payment failed via webhook", {
-          orderId: attempt.orderId,
-          isFraud,
-        });
-        break;
-      }
 
-      default:
-        logger.info("Unhandled webhook event type", { type: event.type });
+        case "checkout.confirm.failure": {
+          const isFraud = event.data?.reason === "fraud";
+          if (isFraud) {
+            await updatePaymentAndOrderStatus(attempt.id, "fraud_rejected", attempt.orderId, "fraud_rejected", {
+              failureMessage: event.data?.message || "Fraud detected",
+            });
+          } else {
+            await updatePaymentAndOrderStatus(attempt.id, "failed", attempt.orderId, "payment_failed", {
+              failureCode: event.data?.code,
+              failureMessage: event.data?.message || "Payment failed",
+            });
+          }
+          logger.info("Order payment failed via webhook", {
+            orderId: attempt.orderId,
+            paymentAttemptId: attempt.id,
+            providerCheckoutId: checkoutId,
+            isFraud,
+          });
+          break;
+        }
+
+        default:
+          logger.info("Unhandled webhook event type", { type: event.type });
+      }
+    } catch (error) {
+      // ConcurrentModificationError is expected when webhook races with sync confirm path
+      if (error instanceof ConcurrentModificationError) {
+        logger.info("Webhook concurrent modification (expected race with sync path)", {
+          uid: event.uid,
+          paymentAttemptId: attempt.id,
+          orderId: attempt.orderId,
+        });
+      } else {
+        throw error;
+      }
     }
 
     return NextResponse.json({ received: true });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CheckoutConfirmSchema } from "@/lib/zod";
 import { confirmCheckoutPayment } from "@/server/services/paymentService";
+import { ConcurrentModificationError } from "@/server/orders/orderQueries";
 import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
@@ -21,12 +22,21 @@ export async function POST(req: NextRequest) {
 
     logger.info("Checkout confirm result", {
       orderId,
+      paymentAttemptId,
       status: result.status,
       publicOrderId: result.publicOrderId,
     });
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof ConcurrentModificationError) {
+      logger.info("Concurrent confirm rejected", { error: error.message });
+      return NextResponse.json(
+        { error: "Payment is already being processed." },
+        { status: 409 }
+      );
+    }
+
     logger.error("Checkout confirm error", { error: String(error) });
     return NextResponse.json(
       { error: "An unexpected error occurred during payment confirmation." },

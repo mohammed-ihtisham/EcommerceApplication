@@ -27,6 +27,8 @@ export async function createCheckout(params: {
   currency: "USD" | "EUR" | "JPY";
   /** Optional: orderId for webhook correlation. Sent without hyphens to avoid SDK fraud rules. */
   orderId?: string;
+  /** Idempotency key for tracking/audit (not passed to SDK). */
+  idempotencyKey?: string;
 }): Promise<CreateCheckoutResult> {
   const processor = getProcessor();
 
@@ -45,6 +47,7 @@ export async function createCheckout(params: {
       status: response.status,
       substatus: response.substatus,
       reqId: response._reqId,
+      idempotencyKey: params.idempotencyKey,
     });
 
     if (response.status === "success" && response.substatus === "201-immediate") {
@@ -96,6 +99,8 @@ export async function createCheckout(params: {
 export async function confirmCheckout(params: {
   checkoutId: string;
   paymentToken: string;
+  /** Idempotency key for tracking/audit (not passed to SDK). */
+  idempotencyKey?: string;
 }): Promise<ConfirmCheckoutResult> {
   const processor = getProcessor();
 
@@ -110,6 +115,7 @@ export async function confirmCheckout(params: {
       status: response.status,
       substatus: response.substatus,
       reqId: response._reqId,
+      idempotencyKey: params.idempotencyKey,
     });
 
     if (response.status === "success" && response.substatus === "201-immediate") {
