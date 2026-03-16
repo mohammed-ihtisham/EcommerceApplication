@@ -7,6 +7,7 @@ import { CurrencyProvider } from "@/components/CurrencyProvider";
 import { SupportedCurrencySchema } from "@/lib/zod";
 import type { SupportedCurrency } from "@/lib/zod";
 import SiteHeader from "@/components/SiteHeader";
+import ScrollToTop from "@/components/ScrollToTop";
 
 const cormorant = Cormorant_Garamond({
   weight: ["400", "500", "600"],
