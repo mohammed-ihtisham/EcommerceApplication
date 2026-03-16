@@ -70,11 +70,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       amount: number;
       currency: string;
     }): string | null => {
-      // Currency enforcement
-      if (currency && product.currency !== currency) {
-        return `Your cart contains items priced in ${currency}. Please complete that purchase or clear your cart before adding items in another currency.`;
-      }
-
       setItems((prev) => {
         const existing = prev.find((i) => i.productId === product.id);
         if (existing) {
@@ -99,7 +94,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
       return null;
     },
-    [currency]
+    []
   );
 
   const removeItem = useCallback((productId: number) => {

@@ -1,11 +1,7 @@
-const CURRENCY_CONFIG: Record<string, { locale: string; decimals: number }> = {
-  USD: { locale: "en-US", decimals: 2 },
-  EUR: { locale: "de-DE", decimals: 2 },
-  JPY: { locale: "ja-JP", decimals: 0 },
-};
+import { CURRENCY_CONFIG } from "./currency";
 
 export function formatMoney(amount: number, currency: string): string {
-  const config = CURRENCY_CONFIG[currency];
+  const config = CURRENCY_CONFIG[currency as keyof typeof CURRENCY_CONFIG];
   if (!config) return `${amount} ${currency}`;
 
   return new Intl.NumberFormat(config.locale, {

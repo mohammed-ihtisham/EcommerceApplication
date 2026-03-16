@@ -4,7 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useCart } from "./CartProvider";
-import { formatMoney } from "@/lib/money";
+import { useCurrency } from "./CurrencyProvider";
+import type { SupportedCurrency } from "@/lib/zod";
 
 interface LandingProductCardProps {
   id: number;
@@ -22,6 +23,7 @@ export default function LandingProductCard({
   currency,
 }: LandingProductCardProps) {
   const { addItem } = useCart();
+  const { formatPrice } = useCurrency();
   const [added, setAdded] = useState(false);
 
   function handleAdd(e: React.MouseEvent) {
@@ -87,7 +89,7 @@ export default function LandingProductCard({
           {name}
         </h3>
         <p className="mt-1.5 text-sm font-medium text-gray-900 transition-opacity duration-200 group-hover:opacity-90">
-          {formatMoney(amount, currency)}
+          {formatPrice(amount, currency as SupportedCurrency)}
         </p>
       </div>
     </Link>

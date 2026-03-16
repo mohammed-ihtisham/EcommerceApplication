@@ -3,6 +3,7 @@
 import { AiOutlineShopping } from "react-icons/ai";
 import { useCart } from "./CartProvider";
 import CartItemRow from "./CartItemRow";
+import { useCartTotals } from "@/hooks/useCartTotals";
 import { formatMoney } from "@/lib/money";
 import { useRouter } from "next/navigation";
 
@@ -11,8 +12,9 @@ export default function CartDrawer({
 }: {
   variant?: "default" | "header";
 }) {
-  const { items, totalItems, subtotal, currency, clearCart, isCartOpen, openCart, closeCart } =
+  const { items, totalItems, clearCart, isCartOpen, openCart, closeCart } =
     useCart();
+  const { subtotal, displayCurrency } = useCartTotals();
   const router = useRouter();
 
   return (
@@ -133,7 +135,7 @@ export default function CartDrawer({
                   Subtotal
                 </span>
                 <span className="text-base font-semibold text-gray-900">
-                  {currency ? formatMoney(subtotal, currency) : ""}
+                  {formatMoney(subtotal, displayCurrency)}
                 </span>
               </div>
               <p className="mb-4 text-xs text-gray-500">

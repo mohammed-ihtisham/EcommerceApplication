@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import CartDrawer from "./CartDrawer";
+import CurrencySwitcher from "./CurrencySwitcher";
 
 export default function SiteHeader() {
   return (
@@ -33,7 +34,8 @@ export default function SiteHeader() {
         >
           VIRELLIO
         </Link>
-        <div className="flex items-center">
+        <div className="flex items-center gap-5">
+          <CurrencySwitcher />
           <CartDrawer variant="header" />
         </div>
       </div>

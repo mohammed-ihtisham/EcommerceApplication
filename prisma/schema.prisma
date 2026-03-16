@@ -8,29 +8,32 @@ datasource db {
 }
 
 model Order {
-  id              String   @id @default(uuid())
-  publicOrderId   String   @unique
-  status          String   @default("checkout_draft")
-  currency        String
-  subtotalAmount  Int
-  version         Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  publicOrderId          String   @unique
+  status                 String   @default("checkout_draft")
+  currency               String
+  subtotalAmount         Int
+  exchangeRateSnapshot   String?
+  version                Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   items           OrderItem[]
   paymentAttempts PaymentAttempt[]
 }
 
 model OrderItem {
-  id                   Int    @id @default(autoincrement())
-  orderId              String
-  productId            Int
-  productNameSnapshot  String
-  productImageSnapshot String
-  unitAmountSnapshot   Int
-  currencySnapshot     String
-  quantity             Int
-  lineTotalAmount      Int
+  id                      Int    @id @default(autoincrement())
+  orderId                 String
+  productId               Int
+  productNameSnapshot     String
+  productImageSnapshot    String
+  unitAmountSnapshot      Int
+  currencySnapshot        String
+  quantity                Int
+  lineTotalAmount         Int
+  chargeUnitAmount        Int    @default(0)
+  chargeLineTotalAmount   Int    @default(0)
 
   order Order @relation(fields: [orderId], references: [id])
 }

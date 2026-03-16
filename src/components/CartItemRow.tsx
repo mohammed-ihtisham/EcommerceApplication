@@ -1,10 +1,12 @@
 "use client";
 
 import { useCart, type CartItemData } from "./CartProvider";
-import { formatMoney } from "@/lib/money";
+import { useCurrency } from "./CurrencyProvider";
+import type { SupportedCurrency } from "@/lib/zod";
 
 export default function CartItemRow({ item }: { item: CartItemData }) {
   const { updateQuantity, removeItem } = useCart();
+  const { formatPrice } = useCurrency();
 
   const handleDecrement = () => {
     if (item.quantity <= 1) return;
@@ -39,7 +41,7 @@ export default function CartItemRow({ item }: { item: CartItemData }) {
               {item.name}
             </h4>
             <p className="mt-0.5 text-xs text-gray-500">
-              {formatMoney(item.amount, item.currency)}
+              {formatPrice(item.amount, item.currency as SupportedCurrency)}
             </p>
           </div>
 
@@ -105,7 +107,7 @@ export default function CartItemRow({ item }: { item: CartItemData }) {
 
           {/* Total Price */}
           <span className="text-sm font-bold tracking-tight text-gray-900">
-            {formatMoney(item.amount * item.quantity, item.currency)}
+            {formatPrice(item.amount * item.quantity, item.currency as SupportedCurrency)}
           </span>
           
         </div>
