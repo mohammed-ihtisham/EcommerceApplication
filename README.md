@@ -35,6 +35,28 @@ DATABASE_URL="file:./dev.db"
 PAYMENT_API_KEY="your-api-key"
 ```
 
+## Testing
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+The test suite includes **217 tests** across **20 test files** covering:
+
+- **Unit tests**: Money formatting, currency conversion, Zod schemas, product loading, order state machine, retry logic
+- **Service tests**: Cart validation, payment gateway SDK mapping, payment orchestration (idempotency, retries, state transitions), exchange rate fetching
+- **API route tests**: All 7 API endpoints (happy paths, validation errors, edge cases)
+- **Component tests**: StatusBadge, CartProvider (localStorage persistence, add/remove/update), OrderStatusView (status rendering, polling, slow processing warning)
+
+Tests use [Vitest](https://vitest.dev/) with `@testing-library/react` for component tests. The payment SDK is mocked at the gateway level; no real payment calls are made during tests.
+
 ## Architecture
 
 ### Order Lifecycle
