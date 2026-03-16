@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useCart } from "./CartProvider";
+import { useCurrency } from "./CurrencyProvider";
+import { useCartTotals } from "@/hooks/useCartTotals";
 import { formatMoney } from "@/lib/money";
+import type { SupportedCurrency } from "@/lib/zod";
 
 interface CheckoutSummaryProps {
   editable?: boolean;
@@ -15,7 +18,9 @@ export default function CheckoutSummary({
   showEditCartLink = true,
   title = "Order Summary",
 }: CheckoutSummaryProps) {
-  const { items, subtotal, currency, updateQuantity, openCart } = useCart();
+  const { items, updateQuantity, openCart } = useCart();
+  const { formatPrice } = useCurrency();
+  const { subtotal, displayCurrency } = useCartTotals();
 
   if (items.length === 0) return null;
 
@@ -55,11 +60,11 @@ export default function CheckoutSummary({
                 <div className="min-w-0">
                   <p className="truncate text-base font-medium text-gray-900">{item.name}</p>
                   <p className="mt-1 text-sm text-gray-500">
-                    Unit {formatMoney(item.amount, item.currency)}
+                    Unit {formatPrice(item.amount, item.currency as SupportedCurrency)}
                   </p>
                 </div>
                 <span className="text-base font-medium text-gray-900">
-                  {formatMoney(item.amount * item.quantity, item.currency)}
+                  {formatPrice(item.amount * item.quantity, item.currency as SupportedCurrency)}
                 </span>
               </div>
 
@@ -108,15 +113,15 @@ export default function CheckoutSummary({
         <div className="space-y-3 text-sm text-gray-600">
           <div className="flex items-center justify-between">
             <span>Subtotal</span>
-            <span className="text-gray-900">{currency ? formatMoney(subtotal, currency) : ""}</span>
+            <span className="text-gray-900">{formatMoney(subtotal, displayCurrency)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span>Shipping</span>
-            <span className="text-gray-900">{currency ? formatMoney(shipping, currency) : ""}</span>
+            <span className="text-gray-900">{formatMoney(shipping, displayCurrency)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span>Estimated Tax</span>
-            <span className="text-gray-900">{currency ? formatMoney(estimatedTax, currency) : ""}</span>
+            <span className="text-gray-900">{formatMoney(estimatedTax, displayCurrency)}</span>
           </div>
         </div>
 
@@ -124,7 +129,7 @@ export default function CheckoutSummary({
           <div className="flex items-end justify-between">
             <span className="text-sm font-bold uppercase tracking-widest text-gray-900">Total</span>
             <span className="text-2xl font-semibold tracking-tight text-gray-900">
-              {currency ? formatMoney(total, currency) : ""}
+              {formatMoney(total, displayCurrency)}
             </span>
           </div>
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useCart } from "./CartProvider";
+import { useCurrency } from "./CurrencyProvider";
 import { useRouter } from "next/navigation";
 import ErrorBanner from "./ErrorBanner";
 
@@ -34,6 +35,7 @@ interface PaymentSectionProps {
 
 export default function PaymentSection({ variant = "card" }: PaymentSectionProps) {
   const { items } = useCart();
+  const { displayCurrency } = useCurrency();
   const router = useRouter();
   const [state, setState] = useState<CheckoutState>({ phase: "idle" });
   const mountedRef = useRef(true);
@@ -68,6 +70,7 @@ export default function PaymentSection({ variant = "card" }: PaymentSectionProps
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+          displayCurrency,
         }),
       });
 
@@ -103,7 +106,7 @@ export default function PaymentSection({ variant = "card" }: PaymentSectionProps
         retryable: true,
       });
     }
-  }, [items]);
+  }, [items, displayCurrency]);
 
   const isInline = variant === "inline";
   const wrapperClass = isInline

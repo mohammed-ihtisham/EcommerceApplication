@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { v4 as uuidv4 } from "uuid";
 import type { ValidatedCart } from "./cartService";
+import type { ExchangeRates } from "@/lib/currency";
 import { logger } from "@/lib/logger";
 
 function generatePublicOrderId(): string {
@@ -12,20 +13,26 @@ function generatePublicOrderId(): string {
   return result;
 }
 
-export async function createOrder(cart: ValidatedCart) {
+export async function createOrder(cart: ValidatedCart, rates: ExchangeRates) {
   const orderId = uuidv4();
   const publicOrderId = generatePublicOrderId();
   const idempotencyKey = uuidv4();
 
-  logger.info("Creating order", { orderId, publicOrderId, currency: cart.currency });
+  logger.info("Creating order", {
+    orderId,
+    publicOrderId,
+    chargeCurrency: cart.chargeCurrency,
+    chargeSubtotal: cart.chargeSubtotal,
+  });
 
   const order = await prisma.order.create({
     data: {
       id: orderId,
       publicOrderId,
       status: "checkout_draft",
-      currency: cart.currency,
-      subtotalAmount: cart.subtotal,
+      currency: cart.chargeCurrency,
+      subtotalAmount: cart.chargeSubtotal,
+      exchangeRateSnapshot: JSON.stringify(rates),
       items: {
         create: cart.items.map((item) => ({
           productId: item.product.id,
@@ -35,13 +42,15 @@ export async function createOrder(cart: ValidatedCart) {
           currencySnapshot: item.product.currency,
           quantity: item.quantity,
           lineTotalAmount: item.lineTotal,
+          chargeUnitAmount: item.chargeUnitAmount,
+          chargeLineTotalAmount: item.chargeLineTotal,
         })),
       },
       paymentAttempts: {
         create: {
           idempotencyKey,
-          amount: cart.subtotal,
-          currency: cart.currency,
+          amount: cart.chargeSubtotal,
+          currency: cart.chargeCurrency,
           status: "created",
         },
       },
@@ -77,10 +86,11 @@ export async function getOrderForStatusPage(publicOrderId: string) {
     items: order.items.map((item) => ({
       productName: item.productNameSnapshot,
       productImage: item.productImageSnapshot,
-      unitAmount: item.unitAmountSnapshot,
-      currency: item.currencySnapshot,
+      unitAmount: item.chargeUnitAmount || item.unitAmountSnapshot,
+      baseCurrency: item.currencySnapshot,
+      currency: order.currency,
       quantity: item.quantity,
-      lineTotal: item.lineTotalAmount,
+      lineTotal: item.chargeLineTotalAmount || item.lineTotalAmount,
     })),
     createdAt: order.createdAt.toISOString(),
   };

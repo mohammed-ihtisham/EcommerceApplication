@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { formatMoney } from "@/lib/money";
 import { useCart } from "./CartProvider";
+import { useCurrency } from "./CurrencyProvider";
+import type { SupportedCurrency } from "@/lib/zod";
 
 interface Product {
   id: number;
@@ -14,6 +15,7 @@ interface Product {
 
 export default function ProductCard({ id, name, imgUrl, amount, currency }: Product) {
   const { addItem } = useCart();
+  const { formatPrice } = useCurrency();
   const [added, setAdded] = useState(false);
 
   function handleAdd(e: React.MouseEvent) {
@@ -61,7 +63,7 @@ export default function ProductCard({ id, name, imgUrl, amount, currency }: Prod
           {name}
         </h3>
         <p className="mt-1 text-[15px] text-gray-500">
-          {formatMoney(amount, currency)}
+          {formatPrice(amount, currency as SupportedCurrency)}
         </p>
       </div>
     </div>

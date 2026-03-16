@@ -1,13 +1,45 @@
 "use client";
 
 import { useState } from "react";
+import { useCurrency } from "./CurrencyProvider";
+import { CURRENCY_CONFIG, convertAmount } from "@/lib/currency";
+import type { SupportedCurrency } from "@/lib/zod";
 
-const filterOptions = {
+const staticFilterOptions = {
   TYPE: ["Sneakers", "Sandals", "Loafers", "Oxfords", "Heels"],
   MATERIAL: ["Leather", "Suede", "Metallic", "Croc-Embossed"],
   STYLE: ["Minimal", "Statement", "Formal", "Streetwear"],
-  PRICE: ["Under $1,000", "$1,000 – $3,000", "Over $3,000"],
 };
+
+/** Stable IDs for price tiers — these never change with currency. */
+export const PRICE_TIER_IDS = ["price:under-1000", "price:1000-3000", "price:over-3000"] as const;
+
+/** USD thresholds in minor units (cents). */
+const PRICE_THRESHOLDS_USD = [1000_00, 3000_00] as const;
+
+function formatThreshold(amount: number, currency: SupportedCurrency): string {
+  const config = CURRENCY_CONFIG[currency];
+  const major = config.decimals === 0 ? amount : amount / 100;
+  return new Intl.NumberFormat(config.locale, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(major);
+}
+
+function priceTierLabel(
+  id: string,
+  displayCurrency: SupportedCurrency,
+  rates: Record<string, number>,
+): string {
+  const low = convertAmount(PRICE_THRESHOLDS_USD[0], "USD", displayCurrency, rates);
+  const high = convertAmount(PRICE_THRESHOLDS_USD[1], "USD", displayCurrency, rates);
+
+  if (id === "price:under-1000")  return `Under ${formatThreshold(low, displayCurrency)}`;
+  if (id === "price:1000-3000")   return `${formatThreshold(low, displayCurrency)} – ${formatThreshold(high, displayCurrency)}`;
+  if (id === "price:over-3000")   return `Over ${formatThreshold(high, displayCurrency)}`;
+  return id;
+}
 
 const keywords = ["Gold Accents", "Chunky Sole", "Slip-On", "Evening Wear", "Futuristic", "Cap Toe"];
 
@@ -26,9 +58,19 @@ export default function FilterSidebar({
   searchQuery,
   onSearchChangeAction,
 }: FilterSidebarProps) {
+  const { displayCurrency, rates } = useCurrency();
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     TYPE: true,
   });
+
+  // Build the full filter options with dynamic price labels
+  const filterOptions = {
+    ...staticFilterOptions,
+    PRICE: PRICE_TIER_IDS.map((id) => ({
+      id,
+      label: priceTierLabel(id, displayCurrency, rates),
+    })),
+  };
 
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({
@@ -59,11 +101,15 @@ export default function FilterSidebar({
       <div className="mb-8 flex flex-col border-b border-gray-200 pb-4">
         {Object.entries(filterOptions).map(([section, options]) => {
           const isOpen = openSections[section];
+          // Price section uses { id, label } objects; other sections use plain strings
+          const items = section === "PRICE"
+            ? (options as { id: string; label: string }[]).map((o) => ({ key: o.id, label: o.label }))
+            : (options as string[]).map((o) => ({ key: o, label: o }));
 
           return (
             <div key={section} className="border-b border-gray-100 last:border-none">
-              <button 
-                onClick={() => toggleSection(section)} 
+              <button
+                onClick={() => toggleSection(section)}
                 className="group flex w-full items-center justify-between py-5 text-left focus:outline-none"
               >
                 <span className="text-xs font-medium tracking-[0.15em] text-gray-800 uppercase">
@@ -78,31 +124,30 @@ export default function FilterSidebar({
                 </svg>
               </button>
 
-              <div 
+              <div
                 className={`grid transition-all duration-300 ease-in-out ${
                   isOpen ? "grid-rows-[1fr] opacity-100 pb-5" : "grid-rows-[0fr] opacity-0"
                 }`}
               >
                 <div className="overflow-hidden flex flex-col space-y-3">
-                  {options.map((option) => {
-                    const isChecked = selectedFilters.includes(option);
+                  {items.map(({ key, label }) => {
+                    const isChecked = selectedFilters.includes(key);
                     return (
-                      <label 
-                        key={option} 
+                      <label
+                        key={key}
                         className="group flex cursor-pointer items-center gap-3"
                       >
-                        {/* THE FIX: Hidden native checkbox linked to the label */}
-                        <input 
-                          type="checkbox" 
-                          className="hidden" 
+                        <input
+                          type="checkbox"
+                          className="hidden"
                           checked={isChecked}
-                          onChange={() => onToggleFilterAction(option)}
+                          onChange={() => onToggleFilterAction(key)}
                         />
-                        
-                        <div 
+
+                        <div
                           className={`flex h-4 w-4 items-center justify-center border transition-colors ${
-                            isChecked 
-                              ? "border-black bg-black" 
+                            isChecked
+                              ? "border-black bg-black"
                               : "border-gray-300 bg-white group-hover:border-gray-400"
                           }`}
                         >
@@ -112,9 +157,9 @@ export default function FilterSidebar({
                             </svg>
                           )}
                         </div>
-                        
+
                         <span className={`text-[13px] transition-colors ${isChecked ? "text-gray-900 font-medium" : "text-gray-600 group-hover:text-gray-900"}`}>
-                          {option}
+                          {label}
                         </span>
                       </label>
                     );

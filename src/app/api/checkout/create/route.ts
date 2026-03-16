@@ -3,6 +3,7 @@ import { CheckoutCreateSchema } from "@/lib/zod";
 import { validateCart } from "@/server/services/cartService";
 import { createOrder } from "@/server/services/orderService";
 import { initiateCheckoutPayment } from "@/server/services/paymentService";
+import { getExchangeRates } from "@/server/services/exchangeRateService";
 import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
@@ -17,8 +18,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Server-side cart validation and total recomputation
-    const cartResult = validateCart(parsed.data.items);
+    // Fetch live exchange rates server-side
+    const { rates } = await getExchangeRates();
+
+    // Server-side cart validation with currency conversion
+    const cartResult = validateCart(
+      parsed.data.items,
+      parsed.data.displayCurrency,
+      rates
+    );
     if ("error" in cartResult) {
       return NextResponse.json(
         { error: cartResult.error, code: cartResult.code },
@@ -26,10 +34,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create order and order items
-    const order = await createOrder(cartResult);
+    // Create order with charge amounts and rate snapshot
+    const order = await createOrder(cartResult, rates);
 
-    // Initiate payment with provider (fast: 2 attempts then deferred → client polls)
+    // Initiate payment with provider
     const paymentResult = await initiateCheckoutPayment(order.id);
 
     if (paymentResult.success) {
@@ -43,8 +51,8 @@ export async function POST(req: NextRequest) {
         publicOrderId: order.publicOrderId,
         checkoutId: paymentResult.checkoutId,
         paymentAttemptId: paymentResult.paymentAttemptId,
-        currency: cartResult.currency,
-        subtotal: cartResult.subtotal,
+        currency: cartResult.chargeCurrency,
+        subtotal: cartResult.chargeSubtotal,
       });
     }
 

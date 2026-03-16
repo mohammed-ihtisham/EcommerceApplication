@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { getProducts, type Product } from "@/lib/products";
+import { useCurrency } from "@/components/CurrencyProvider";
+import { convertAmount } from "@/lib/currency";
+import type { SupportedCurrency } from "@/lib/zod";
 import ProductGrid from "@/components/ProductGrid";
 import FilterSidebar from "@/components/FilterSidebar";
 
@@ -11,24 +14,25 @@ function normalize(text: string) {
   return text.toLowerCase().replace(/&/g, "and");
 }
 
-/** Rough conversion to USD for price-bracket filtering across currencies. */
-function toUsd(amount: number, currency: string): number {
-  switch (currency) {
-    case "EUR": return amount * 1.1;
-    case "JPY": return amount / 150;
-    default:    return amount; // USD
-  }
-}
-
 /** Map every sidebar filter label → a product matcher. */
-function productMatchesFilter(filter: string, product: Product, normalizedText: string): boolean {
+function productMatchesFilter(
+  filter: string,
+  product: Product,
+  normalizedText: string,
+  rates: Record<string, number>,
+  displayCurrency: SupportedCurrency,
+): boolean {
   const matchAny = (...words: string[]) => words.some((w) => normalizedText.includes(w));
 
-  // — PRICE (normalised to USD) —
-  const usd = toUsd(product.amount, product.currency);
-  if (filter === "Under $1,000")       return usd < 1000;
-  if (filter === "$1,000 – $3,000")    return usd >= 1000 && usd <= 3000;
-  if (filter === "Over $3,000")        return usd > 3000;
+  // — PRICE (normalised to display currency via live rates) —
+  if (filter.startsWith("price:")) {
+    const displayAmount = convertAmount(product.amount, product.currency as SupportedCurrency, displayCurrency, rates);
+    const low = convertAmount(1000_00, "USD", displayCurrency, rates);
+    const high = convertAmount(3000_00, "USD", displayCurrency, rates);
+    if (filter === "price:under-1000")  return displayAmount < low;
+    if (filter === "price:1000-3000")   return displayAmount >= low && displayAmount <= high;
+    if (filter === "price:over-3000")   return displayAmount > high;
+  }
 
   const f = normalize(filter);
 
@@ -66,6 +70,7 @@ function productMatchesFilter(filter: string, product: Product, normalizedText: 
 export default function CatalogPage() {
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const { rates, displayCurrency } = useCurrency();
 
   const filteredProducts = useMemo(() => {
     const search = normalize(searchQuery.trim());
@@ -88,10 +93,10 @@ export default function CatalogPage() {
 
       // AND Filter: Product must contain EVERY tag the user clicked
       return selectedFilters.every((filter) =>
-        productMatchesFilter(filter, product, normalizedText)
+        productMatchesFilter(filter, product, normalizedText, rates, displayCurrency)
       );
     });
-  }, [searchQuery, selectedFilters]);
+  }, [searchQuery, selectedFilters, rates, displayCurrency]);
 
   const handleToggleFilter = (option: string) => {
     setSelectedFilters((prev) =>
