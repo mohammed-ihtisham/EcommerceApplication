@@ -1,60 +1,19 @@
 import { prisma } from "@/lib/prisma";
 import * as gateway from "@/server/payments/PaymentGateway";
-import { updateOrderStatus, updatePaymentAttemptStatus } from "@/server/orders/orderQueries";
+import {
+  updateOrderStatus,
+  updatePaymentAttemptStatus,
+  updatePaymentAndOrderStatus,
+  ConcurrentModificationError,
+} from "@/server/orders/orderQueries";
+import { isTerminalPaymentStatus, isTerminalOrderStatus } from "@/server/orders/stateMachine";
+import type { PaymentAttemptStatus } from "@/server/orders/stateMachine";
+import { retryWithBackoff } from "@/server/payments/retry";
+import { SupportedCurrencySchema } from "@/lib/zod";
 import { logger } from "@/lib/logger";
 
-/**
- * Parallel-race retry strategy: fire multiple gateway calls concurrently,
- * take the first success. Much faster than sequential retries.
- */
-const PARALLEL_BATCH_SIZE = 3;       // calls per batch
-const CREATE_BATCHES = 3;            // max batches for creation (9 total attempts)
-const CONFIRM_BATCHES = 3;           // max batches for confirmation (9 total attempts)
-const BATCH_GAP_MS = 800;            // pause between batches
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Race N gateway calls in parallel. Returns the first successful result,
- * or the last failure if all fail. Terminal results (non-retryable) short-circuit.
- */
-async function raceCreate(
-  params: Parameters<typeof gateway.createCheckout>[0],
-  count: number,
-): Promise<gateway.CreateCheckoutResult> {
-  const results = await Promise.all(
-    Array.from({ length: count }, () => gateway.createCheckout(params)),
-  );
-  // Return first success
-  const success = results.find((r) => r.success);
-  if (success) return success;
-  // Return first non-retryable (terminal)
-  const terminal = results.find((r) => !r.success && !r.retryable);
-  if (terminal) return terminal;
-  // All retryable failures — return last one
-  return results[results.length - 1];
-}
-
-async function raceConfirm(
-  params: Parameters<typeof gateway.confirmCheckout>[0],
-  count: number,
-): Promise<gateway.ConfirmCheckoutResult> {
-  const results = await Promise.all(
-    Array.from({ length: count }, () => gateway.confirmCheckout(params)),
-  );
-  // Return first "paid"
-  const paid = results.find((r) => r.status === "paid");
-  if (paid) return paid;
-  // Return first terminal (fraud / non-retryable failure)
-  const terminal = results.find(
-    (r) => r.status === "fraud_rejected" || (r.status === "failed" && !r.retryable),
-  );
-  if (terminal) return terminal;
-  // All deferred/retryable — return last
-  return results[results.length - 1];
-}
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 500;
 
 export async function initiateCheckoutPayment(orderId: string) {
   const order = await prisma.order.findUnique({
@@ -67,54 +26,80 @@ export async function initiateCheckoutPayment(orderId: string) {
   const paymentAttempt = order.paymentAttempts[0];
   if (!paymentAttempt) throw new Error("No payment attempt found");
 
-  const createParams = {
-    amount: order.subtotalAmount,
-    currency: order.currency as "USD" | "EUR" | "JPY",
-    orderId,
-  };
+  const currency = SupportedCurrencySchema.parse(order.currency);
+  const idempotencyKey = `checkout:create:${paymentAttempt.id}`;
 
-  // Fire parallel batches — much faster than sequential retries
-  let lastResult: gateway.CreateCheckoutResult | null = null;
-  for (let batch = 0; batch < CREATE_BATCHES; batch++) {
-    if (batch > 0) {
-      logger.info("Create batch retry", { orderId, batch });
-      await delay(BATCH_GAP_MS);
-    }
-
-    const result = await raceCreate(createParams, PARALLEL_BATCH_SIZE);
-    logger.info("Create batch result", { orderId, batch, success: result.success });
-
-    if (result.success) {
-      await prisma.paymentAttempt.update({
-        where: { id: paymentAttempt.id },
-        data: { providerCheckoutId: result.checkoutId },
-      });
-      await updateOrderStatus(orderId, "pending_payment");
-      return {
-        success: true as const,
-        checkoutId: result.checkoutId,
-        paymentAttemptId: paymentAttempt.id,
-      };
-    }
-
-    lastResult = result;
-    if (!result.retryable) break;
+  // Idempotent guard: if we already have a checkoutId, don't call gateway again
+  if (paymentAttempt.providerCheckoutId) {
+    logger.info("Checkout already created, returning existing", {
+      orderId,
+      paymentAttemptId: paymentAttempt.id,
+      providerCheckoutId: paymentAttempt.providerCheckoutId,
+    });
+    await updateOrderStatus(orderId, "pending_payment");
+    return {
+      success: true as const,
+      checkoutId: paymentAttempt.providerCheckoutId,
+      paymentAttemptId: paymentAttempt.id,
+    };
   }
 
-  const result = lastResult!;
-  logger.warn("Checkout creation exhausted all batches", {
-    orderId,
-    code: result.code,
-    retryable: result.retryable,
-    totalAttempts: CREATE_BATCHES * PARALLEL_BATCH_SIZE,
-  });
+  const createParams = { amount: order.subtotalAmount, currency, orderId, idempotencyKey };
 
+  const result = await retryWithBackoff(
+    () => gateway.createCheckout(createParams),
+    {
+      maxRetries: MAX_RETRIES,
+      baseDelayMs: BASE_DELAY_MS,
+      shouldRetry: (r) => !r.success && r.retryable,
+      onRetry: (attempt, prev) => {
+        logger.info("Create checkout retry", {
+          orderId,
+          paymentAttemptId: paymentAttempt.id,
+          idempotencyKey,
+          attempt,
+          previousCode: prev.success ? undefined : prev.code,
+        });
+      },
+    },
+  );
+
+  if (result.success) {
+    await prisma.paymentAttempt.update({
+      where: { id: paymentAttempt.id },
+      data: { providerCheckoutId: result.checkoutId },
+    });
+    await updateOrderStatus(orderId, "pending_payment");
+
+    logger.info("Checkout created successfully", {
+      orderId,
+      paymentAttemptId: paymentAttempt.id,
+      providerCheckoutId: result.checkoutId,
+      idempotencyKey,
+    });
+
+    return {
+      success: true as const,
+      checkoutId: result.checkoutId,
+      paymentAttemptId: paymentAttempt.id,
+    };
+  }
+
+  // Terminal (non-retryable) failure
   if (!result.retryable) {
+    logger.warn("Checkout creation failed (terminal)", {
+      orderId,
+      paymentAttemptId: paymentAttempt.id,
+      code: result.code,
+      idempotencyKey,
+    });
+
     await updatePaymentAttemptStatus(paymentAttempt.id, "failed", {
       failureCode: result.code,
       failureMessage: result.message,
     });
     await updateOrderStatus(orderId, "payment_failed");
+
     return {
       success: false as const,
       retryable: false,
@@ -123,7 +108,14 @@ export async function initiateCheckoutPayment(orderId: string) {
     };
   }
 
-  // Retryable failure — return pending so client can poll instead of seeing an error
+  // Retryable failure exhausted — return pending for webhook reconciliation
+  logger.warn("Checkout creation retries exhausted", {
+    orderId,
+    paymentAttemptId: paymentAttempt.id,
+    code: result.code,
+    idempotencyKey,
+  });
+
   return {
     success: false as const,
     pending: true as const,
@@ -132,7 +124,10 @@ export async function initiateCheckoutPayment(orderId: string) {
   };
 }
 
-/** For polling: check if we have a checkoutId (from webhook or DB), or try one create. No long retries. */
+/**
+ * Pure read — checks DB state only, no gateway calls, no side effects.
+ * The webhook handler or initiateCheckoutPayment are responsible for mutations.
+ */
 export async function getCheckoutStatus(orderId: string): Promise<
   | { status: "ready"; checkoutId: string; paymentAttemptId: number }
   | { status: "pending" }
@@ -152,9 +147,8 @@ export async function getCheckoutStatus(orderId: string): Promise<
     return { status: "failed", message: "No payment attempt", retryable: false };
   }
 
-  // Already have checkoutId (set by webhook or earlier poll)
+  // Already have checkoutId (set by initiateCheckoutPayment or webhook)
   if (attempt.providerCheckoutId) {
-    await updateOrderStatus(orderId, "pending_payment");
     return {
       status: "ready",
       checkoutId: attempt.providerCheckoutId,
@@ -162,35 +156,17 @@ export async function getCheckoutStatus(orderId: string): Promise<
     };
   }
 
-  // Fire parallel attempts per poll — faster than a single try
-  const result = await raceCreate(
-    { amount: order.subtotalAmount, currency: order.currency as "USD" | "EUR" | "JPY", orderId },
-    PARALLEL_BATCH_SIZE,
-  );
-
-  if (result.success) {
-    await prisma.paymentAttempt.update({
-      where: { id: attempt.id },
-      data: { providerCheckoutId: result.checkoutId },
-    });
-    await updateOrderStatus(orderId, "pending_payment");
+  // Terminal order — no point polling further
+  if (isTerminalOrderStatus(order.status as Parameters<typeof isTerminalOrderStatus>[0])) {
     return {
-      status: "ready",
-      checkoutId: result.checkoutId,
-      paymentAttemptId: attempt.id,
+      status: "failed",
+      message: "Order is in a terminal state",
+      retryable: false,
     };
   }
 
-  // All retryable — tell client to keep polling
-  if (result.retryable) {
-    return { status: "pending" };
-  }
-
-  return {
-    status: "failed",
-    message: result.message,
-    retryable: false,
-  };
+  // Still waiting for webhook or next create attempt
+  return { status: "pending" };
 }
 
 export async function confirmCheckoutPayment(
@@ -215,86 +191,99 @@ export async function confirmCheckoutPayment(
     throw new Error("No checkout session found for this payment attempt");
   }
 
-  // Mark as confirming
-  await updatePaymentAttemptStatus(paymentAttemptId, "confirming");
-
-  // Parallel-race confirm: fire multiple calls concurrently per batch.
-  // Gateway often returns 202-deferred — racing increases chance of 201-immediate.
-  const confirmParams = { checkoutId: attempt.providerCheckoutId, paymentToken };
-  let lastResult: gateway.ConfirmCheckoutResult | null = null;
-
-  for (let batch = 0; batch < CONFIRM_BATCHES; batch++) {
-    if (batch > 0) {
-      logger.info("Confirm batch retry", { orderId, batch });
-      await delay(BATCH_GAP_MS);
-    }
-
-    const result = await raceConfirm(confirmParams, PARALLEL_BATCH_SIZE);
-    logger.info("Confirm batch result", { orderId, batch, status: result.status });
-
-    // Immediate success — done!
-    if (result.status === "paid") {
-      await updatePaymentAttemptStatus(paymentAttemptId, "succeeded", {
-        providerPaymentId: result.confirmationId,
-      });
-      await updateOrderStatus(orderId, "paid");
-      return { status: "paid" as const, publicOrderId: attempt.order.publicOrderId };
-    }
-
-    // Fraud rejection — terminal, don't retry
-    if (result.status === "fraud_rejected") {
-      await updatePaymentAttemptStatus(paymentAttemptId, "fraud_rejected", {
-        failureMessage: result.message,
-      });
-      await updateOrderStatus(orderId, "fraud_rejected");
-      return { status: "fraud_rejected" as const, publicOrderId: attempt.order.publicOrderId };
-    }
-
-    // Non-retryable failure — terminal
-    if (result.status === "failed" && !result.retryable) {
-      await updatePaymentAttemptStatus(paymentAttemptId, "failed", {
-        failureMessage: result.message,
-      });
-      await updateOrderStatus(orderId, "payment_failed");
-      return {
-        status: "failed" as const,
-        retryable: false,
-        publicOrderId: attempt.order.publicOrderId,
-        message: result.message,
-      };
-    }
-
-    // Retryable (processing/deferred, retryable failure) — next batch
-    lastResult = result;
+  // Guard: reject if payment attempt is already terminal
+  const currentStatus = attempt.status as PaymentAttemptStatus;
+  if (isTerminalPaymentStatus(currentStatus)) {
+    throw new Error(`Payment attempt is already in terminal state: ${currentStatus}`);
   }
 
-  // Exhausted all confirm batches — accept whatever we got last
-  logger.warn("Confirm batches exhausted", {
+  // Guard: reject if already confirming or processing (concurrent confirm in flight)
+  if (currentStatus === "confirming" || currentStatus === "processing") {
+    throw new ConcurrentModificationError("PaymentAttempt", paymentAttemptId);
+  }
+
+  const idempotencyKey = `checkout:confirm:${paymentAttemptId}`;
+
+  // Optimistic-locked transition to "confirming"
+  await updatePaymentAttemptStatus(paymentAttemptId, "confirming");
+
+  const confirmParams = {
+    checkoutId: attempt.providerCheckoutId,
+    paymentToken,
+    idempotencyKey,
+  };
+
+  const result = await retryWithBackoff(
+    () => gateway.confirmCheckout(confirmParams),
+    {
+      maxRetries: MAX_RETRIES,
+      baseDelayMs: BASE_DELAY_MS,
+      shouldRetry: (r) => r.status === "failed" && r.retryable,
+      onRetry: (retryAttempt, prev) => {
+        logger.info("Confirm checkout retry", {
+          orderId,
+          paymentAttemptId,
+          idempotencyKey,
+          attempt: retryAttempt,
+          previousStatus: prev.status,
+        });
+      },
+    },
+  );
+
+  logger.info("Confirm checkout result", {
     orderId,
-    totalAttempts: CONFIRM_BATCHES * PARALLEL_BATCH_SIZE,
-    lastStatus: lastResult?.status,
+    paymentAttemptId,
+    idempotencyKey,
+    providerCheckoutId: attempt.providerCheckoutId,
+    status: result.status,
   });
 
-  if (lastResult?.status === "processing") {
-    await updatePaymentAttemptStatus(paymentAttemptId, "processing");
-    await updateOrderStatus(orderId, "payment_processing");
+  if (result.status === "paid") {
+    await updatePaymentAndOrderStatus(paymentAttemptId, "succeeded", orderId, "paid", {
+      providerPaymentId: result.confirmationId,
+    });
+    return { status: "paid" as const, publicOrderId: attempt.order.publicOrderId };
+  }
+
+  if (result.status === "fraud_rejected") {
+    await updatePaymentAndOrderStatus(paymentAttemptId, "fraud_rejected", orderId, "fraud_rejected", {
+      failureMessage: result.message,
+    });
+    return { status: "fraud_rejected" as const, publicOrderId: attempt.order.publicOrderId };
+  }
+
+  if (result.status === "failed" && !result.retryable) {
+    await updatePaymentAndOrderStatus(paymentAttemptId, "failed", orderId, "payment_failed", {
+      failureMessage: result.message,
+    });
+    return {
+      status: "failed" as const,
+      retryable: false,
+      publicOrderId: attempt.order.publicOrderId,
+      message: result.message,
+    };
+  }
+
+  if (result.status === "processing") {
+    await updatePaymentAndOrderStatus(paymentAttemptId, "processing", orderId, "payment_processing");
     return { status: "processing" as const, publicOrderId: attempt.order.publicOrderId };
   }
 
-  if (lastResult?.status === "failed") {
+  // Retryable failure exhausted — mark as processing, let webhook finalize
+  if (result.status === "failed" && result.retryable) {
     await updatePaymentAttemptStatus(paymentAttemptId, "failed", {
-      failureMessage: lastResult.message,
+      failureMessage: result.message,
     });
     return {
       status: "failed" as const,
       retryable: true,
       publicOrderId: attempt.order.publicOrderId,
-      message: lastResult.message,
+      message: result.message,
     };
   }
 
-  // Fallback
-  await updatePaymentAttemptStatus(paymentAttemptId, "processing");
-  await updateOrderStatus(orderId, "payment_processing");
+  // Fallback: treat as processing
+  await updatePaymentAndOrderStatus(paymentAttemptId, "processing", orderId, "payment_processing");
   return { status: "processing" as const, publicOrderId: attempt.order.publicOrderId };
 }

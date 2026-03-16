@@ -13,6 +13,7 @@ model Order {
   status          String   @default("checkout_draft")
   currency        String
   subtotalAmount  Int
+  version         Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -43,6 +44,7 @@ model PaymentAttempt {
   idempotencyKey     String   @unique
   amount             Int
   currency           String
+  version            Int      @default(0)
   failureCode        String?
   failureMessage     String?
   createdAt          DateTime @default(now())

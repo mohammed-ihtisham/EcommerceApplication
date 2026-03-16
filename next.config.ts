@@ -3,9 +3,10 @@ import path from "path";
 
 // Stub for @henrylabs-interview/payments: the SDK resolves '../db-store/history.json'
 // from dist/utils/store.js via import.meta.url; that file is not shipped in the npm package.
-const paymentsDist = path.join(
-  process.cwd(),
-  "node_modules/@henrylabs-interview/payments/dist"
+// Use require.resolve to find the actual package location (works in worktrees where
+// node_modules may live outside process.cwd()).
+const paymentsDist = path.dirname(
+  require.resolve("@henrylabs-interview/payments")
 );
 const historyJsonStub = path.join(process.cwd(), "src/lib/payment-history-stub.json");
 

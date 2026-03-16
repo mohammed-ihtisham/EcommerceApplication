@@ -19,6 +19,9 @@ export const CheckoutConfirmSchema = z.object({
   paymentToken: z.string().min(1),
 });
 
+export const SupportedCurrencySchema = z.enum(["USD", "EUR", "JPY"]);
+export type SupportedCurrency = z.infer<typeof SupportedCurrencySchema>;
+
 export type CartItem = z.infer<typeof CartItemSchema>;
 export type CartValidateInput = z.infer<typeof CartValidateSchema>;
 export type CheckoutCreateInput = z.infer<typeof CheckoutCreateSchema>;
