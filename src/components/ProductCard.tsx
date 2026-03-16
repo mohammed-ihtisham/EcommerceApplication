@@ -1,6 +1,7 @@
-"use client";
+ "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { formatMoney } from "@/lib/money";
 import { useCart } from "./CartProvider";
 
@@ -28,7 +29,7 @@ export default function ProductCard({ id, name, imgUrl, amount, currency }: Prod
   }
 
   return (
-    <div className="group flex cursor-pointer flex-col">
+    <Link href={`/product/${id}`} className="group flex cursor-pointer flex-col">
       <div className="relative mb-4 aspect-square w-full overflow-hidden bg-[#F4F4F4]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -64,6 +65,6 @@ export default function ProductCard({ id, name, imgUrl, amount, currency }: Prod
           {formatMoney(amount, currency)}
         </p>
       </div>
-    </div>
+    </Link>
   );
 }

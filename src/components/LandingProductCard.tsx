@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import { useCart } from "./CartProvider";
 import { formatMoney } from "@/lib/money";
@@ -35,7 +36,10 @@ export default function LandingProductCard({
   }
 
   return (
-    <article className="group flex cursor-pointer flex-col transition-transform duration-300 hover:-translate-y-1">
+    <Link
+      href={`/product/${id}`}
+      className="group flex cursor-pointer flex-col transition-transform duration-300 hover:-translate-y-1"
+    >
       <div className="relative aspect-square w-full overflow-hidden bg-[#F3F3F3] flex flex-col transition-shadow duration-300 group-hover:shadow-md">
         <div className="relative flex-1 w-full p-6 overflow-hidden">
           <Image
@@ -86,6 +90,6 @@ export default function LandingProductCard({
           {formatMoney(amount, currency)}
         </p>
       </div>
-    </article>
+    </Link>
   );
 }
