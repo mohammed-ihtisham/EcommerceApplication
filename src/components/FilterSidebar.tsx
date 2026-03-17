@@ -14,17 +14,16 @@ const staticFilterOptions = {
 /** Stable IDs for price tiers — these never change with currency. */
 export const PRICE_TIER_IDS = ["price:under-1000", "price:1000-3000", "price:over-3000"] as const;
 
-/** USD thresholds in minor units (cents). */
-const PRICE_THRESHOLDS_USD = [1000_00, 3000_00] as const;
+/** USD thresholds in major units (e.g. 1000 = $1,000). */
+const PRICE_THRESHOLDS_USD = [1000, 3000] as const;
 
 function formatThreshold(amount: number, currency: SupportedCurrency): string {
   const config = CURRENCY_CONFIG[currency];
-  const major = config.decimals === 0 ? amount : amount / 100;
   return new Intl.NumberFormat(config.locale, {
     style: "currency",
     currency,
     maximumFractionDigits: 0,
-  }).format(major);
+  }).format(amount);
 }
 
 function priceTierLabel(

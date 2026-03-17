@@ -27,8 +27,8 @@ function productMatchesFilter(
   // — PRICE (normalised to display currency via live rates) —
   if (filter.startsWith("price:")) {
     const displayAmount = convertAmount(product.amount, product.currency as SupportedCurrency, displayCurrency, rates);
-    const low = convertAmount(1000_00, "USD", displayCurrency, rates);
-    const high = convertAmount(3000_00, "USD", displayCurrency, rates);
+    const low = convertAmount(1000, "USD", displayCurrency, rates);
+    const high = convertAmount(3000, "USD", displayCurrency, rates);
     if (filter === "price:under-1000")  return displayAmount < low;
     if (filter === "price:1000-3000")   return displayAmount >= low && displayAmount <= high;
     if (filter === "price:over-3000")   return displayAmount > high;
