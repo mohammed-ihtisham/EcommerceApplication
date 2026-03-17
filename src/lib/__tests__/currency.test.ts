@@ -14,34 +14,34 @@ describe("convertAmount", () => {
     expect(convertAmount(1000, "USD", "USD", RATES)).toBe(1000);
   });
 
-  it("converts USD to EUR (cents to cents)", () => {
-    // 1000 cents / 100 = $10 / 1 * 0.92 = 9.20 EUR * 100 = 920 cents
+  it("converts USD to EUR (major units)", () => {
+    // 1000 USD / 1 * 0.92 = 920 EUR
     expect(convertAmount(1000, "USD", "EUR", RATES)).toBe(920);
   });
 
-  it("converts USD to JPY (cents to yen)", () => {
-    // 1000 cents / 100 = $10 / 1 * 149.5 = 1495 JPY * 1 = 1495
-    expect(convertAmount(1000, "USD", "JPY", RATES)).toBe(1495);
+  it("converts USD to JPY (major units)", () => {
+    // 1000 USD / 1 * 149.5 = 149500 JPY
+    expect(convertAmount(1000, "USD", "JPY", RATES)).toBe(149500);
   });
 
-  it("converts EUR to USD (cents to cents)", () => {
-    // 920 cents / 100 = 9.20 EUR / 0.92 = $10 * 100 = 1000 cents
+  it("converts EUR to USD (major units)", () => {
+    // 920 EUR / 0.92 = 1000 USD
     expect(convertAmount(920, "EUR", "USD", RATES)).toBe(1000);
   });
 
   it("converts JPY to USD", () => {
-    // 1495 yen / 1 = 1495 JPY / 149.5 = $10 * 100 = 1000 cents
-    expect(convertAmount(1495, "JPY", "USD", RATES)).toBe(1000);
+    // 149500 JPY / 149.5 = 1000 USD
+    expect(convertAmount(149500, "JPY", "USD", RATES)).toBe(1000);
   });
 
   it("converts EUR to JPY (cross-rate via USD)", () => {
-    // 920 cents / 100 = 9.20 EUR / 0.92 = $10 * 149.5 = 1495 JPY
-    expect(convertAmount(920, "EUR", "JPY", RATES)).toBe(1495);
+    // 920 EUR / 0.92 = 1000 USD * 149.5 = 149500 JPY
+    expect(convertAmount(920, "EUR", "JPY", RATES)).toBe(149500);
   });
 
   it("converts JPY to EUR", () => {
-    // 1495 / 1 = 1495 JPY / 149.5 = $10 * 0.92 = 9.20 EUR * 100 = 920
-    expect(convertAmount(1495, "JPY", "EUR", RATES)).toBe(920);
+    // 149500 JPY / 149.5 = 1000 USD * 0.92 = 920 EUR
+    expect(convertAmount(149500, "JPY", "EUR", RATES)).toBe(920);
   });
 
   it("returns original amount when source rate is missing", () => {

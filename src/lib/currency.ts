@@ -48,20 +48,11 @@ export const FALLBACK_RATES: ExchangeRates = {
 };
 
 /**
- * Minor-unit factor for a currency.
- * USD/EUR: 100 (amounts stored as cents)
- * JPY: 1 (amounts stored as whole yen)
- */
-function minorUnitFactor(currency: SupportedCurrency): number {
-  return CURRENCY_CONFIG[currency].decimals === 0 ? 1 : 100;
-}
-
-/**
- * Convert an integer amount from one currency to another.
+ * Convert an amount from one currency to another.
  *
- * The math: normalise to major units in the source currency,
- * convert via USD cross-rate, then scale to minor units of the
- * target currency and round to the nearest integer.
+ * Amounts are treated as major units (e.g. 3250 = $3,250, 580000 = ¥580,000).
+ * The math: convert source major units to USD, then to target major units,
+ * rounding to the nearest integer in the target currency.
  *
  * Pure function — no side effects, no async.
  */
@@ -77,14 +68,10 @@ export function convertAmount(
   const toRate = rates[to];
   if (!fromRate || !toRate) return amount; // defensive — should never happen
 
-  const fromFactor = minorUnitFactor(from);
-  const toFactor = minorUnitFactor(to);
-
-  // amount (minor units) → major units → USD → target major units → target minor units
-  const majorUnits = amount / fromFactor;
-  const usdMajor = majorUnits / fromRate;
+  // amount (major units) → USD → target major units
+  const usdMajor = amount / fromRate;
   const targetMajor = usdMajor * toRate;
-  return Math.round(targetMajor * toFactor);
+  return Math.round(targetMajor);
 }
 
 /**
