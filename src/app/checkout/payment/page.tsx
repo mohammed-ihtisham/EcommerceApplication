@@ -201,7 +201,7 @@ export default function CheckoutPaymentPage() {
           setState({
             phase: "error",
             message:
-              "We couldn’t finish setting up your payment. No charge has been made — please try again.",
+              "We couldn’t finish setting up your payment. No charge has been made — please reload this page and try again.",
             retryable: true,
           });
         }

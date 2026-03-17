@@ -5,15 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { getProductById } from "@/lib/products";
-import { formatMoney } from "@/lib/money";
 import { useCart } from "@/components/CartProvider";
+import { useCurrency } from "@/components/CurrencyProvider";
+import type { SupportedCurrency } from "@/lib/zod";
 
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const idParam = Array.isArray(params?.id) ? params.id[0] : params?.id;
-
-  const [quantity, setQuantity] = useState(1);
 
   const product = useMemo(() => {
     const idNumber = Number(idParam);
@@ -21,7 +20,16 @@ export default function ProductDetailPage() {
     return getProductById(idNumber);
   }, [idParam]);
 
-  const { addItem } = useCart();
+  const { items, addItem, updateQuantity } = useCart();
+  const { formatPrice } = useCurrency();
+
+  const existingItem = useMemo(
+    () =>
+      product ? items.find((i) => i.productId === product.id) ?? null : null,
+    [items, product],
+  );
+
+  const quantity = existingItem?.quantity ?? 0;
 
   if (!product) {
     return (
@@ -45,8 +53,13 @@ export default function ProductDetailPage() {
     );
   }
 
+  const [justAdded, setJustAdded] = useState(false);
+
   const handleAddToCart = () => {
-    for (let i = 0; i < quantity; i++) {
+    if (existingItem) {
+      const newQty = Math.min(existingItem.quantity + 1, 99);
+      updateQuantity(product.id, newQty);
+    } else {
       addItem({
         id: product.id,
         name: product.name,
@@ -55,6 +68,9 @@ export default function ProductDetailPage() {
         currency: product.currency,
       });
     }
+
+    setJustAdded(true);
+    window.setTimeout(() => setJustAdded(false), 1500);
   };
 
   return (
@@ -91,7 +107,7 @@ export default function ProductDetailPage() {
                 {product.name}
               </h1>
               <p className="mt-3 text-2xl font-light text-gray-800">
-                {formatMoney(product.amount, product.currency)}
+                {formatPrice(product.amount, product.currency as SupportedCurrency)}
               </p>
               <p className="mt-6 leading-relaxed text-[#555555] text-[15px]">
                 {product.description}
@@ -115,8 +131,13 @@ export default function ProductDetailPage() {
               <div className="flex w-28 items-center border border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                  className="flex h-full w-10 items-center justify-center text-lg text-gray-400 hover:text-gray-800"
+                  onClick={() => {
+                    if (!existingItem) return;
+                    const next = existingItem.quantity - 1;
+                    updateQuantity(product.id, next);
+                  }}
+                  className="flex h-full w-10 items-center justify-center text-lg text-gray-400 hover:text-gray-800 disabled:opacity-40 disabled:hover:text-gray-400"
+                  disabled={quantity === 0}
                 >
                   -
                 </button>
@@ -125,7 +146,20 @@ export default function ProductDetailPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => setQuantity((q) => Math.min(99, q + 1))}
+                  onClick={() => {
+                    if (existingItem) {
+                      const next = Math.min(existingItem.quantity + 1, 99);
+                      updateQuantity(product.id, next);
+                    } else {
+                      addItem({
+                        id: product.id,
+                        name: product.name,
+                        imgUrl: product.imgUrl,
+                        amount: product.amount,
+                        currency: product.currency,
+                      });
+                    }
+                  }}
                   className="flex h-full w-10 items-center justify-center text-lg text-gray-400 hover:text-gray-800"
                 >
                   +
@@ -135,12 +169,29 @@ export default function ProductDetailPage() {
               <button
                 type="button"
                 onClick={handleAddToCart}
-                className="flex flex-1 items-center justify-center gap-3 bg-[#111] px-6 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition-colors hover:bg-black"
+                className="flex flex-1 items-center justify-center gap-3 bg-[#111] px-6 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition-all hover:bg-black"
               >
-                Add to Cart
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
+                {justAdded ? (
+                  <>
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Added
+                  </>
+                ) : (
+                  "Add to Cart"
+                )}
+                {!justAdded && (
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                )}
               </button>
             </div>
 

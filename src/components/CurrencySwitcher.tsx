@@ -42,7 +42,7 @@ export default function CurrencySwitcher() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-2 w-26 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
           {CURRENCIES.map((code) => {
             const config = CURRENCY_CONFIG[code];
             const isActive = code === displayCurrency;
@@ -61,7 +61,6 @@ export default function CurrencySwitcher() {
               >
                 <span className="w-5 text-center text-base leading-none">{config.flag}</span>
                 <span>{code}</span>
-                <span className="ml-auto text-xs text-gray-400">{config.label}</span>
               </button>
             );
           })}

@@ -8,6 +8,7 @@ import { SupportedCurrencySchema } from "@/lib/zod";
 import type { SupportedCurrency } from "@/lib/zod";
 import SiteHeader from "@/components/SiteHeader";
 import ScrollToTop from "@/components/ScrollToTop";
+import SiteFooter from "@/components/SiteFooter";
 
 const cormorant = Cormorant_Garamond({
   weight: ["400", "500", "600"],
@@ -35,8 +36,10 @@ export default async function RootLayout({
       <body className="bg-white font-sans text-gray-900 antialiased">
         <CurrencyProvider initialCurrency={initialCurrency}>
           <CartProvider>
+            <ScrollToTop />
             <SiteHeader />
             <main>{children}</main>
+            <SiteFooter />
           </CartProvider>
         </CurrencyProvider>
       </body>

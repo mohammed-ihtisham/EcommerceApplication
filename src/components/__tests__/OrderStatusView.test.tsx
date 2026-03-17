@@ -37,7 +37,7 @@ describe("OrderStatusView", () => {
     expect(spinner).toBeTruthy();
   });
 
-  it("shows 'Order Confirmed!' for paid status", async () => {
+  it("shows 'ORDER CONFIRMED' for paid status", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(PAID_ORDER),
@@ -46,7 +46,8 @@ describe("OrderStatusView", () => {
     render(<OrderStatusView publicOrderId="VIR-ABC123" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Order Confirmed!")).toBeInTheDocument();
+      const nodes = screen.getAllByText("ORDER CONFIRMED");
+      expect(nodes.length).toBeGreaterThan(0);
     });
   });
 
@@ -63,7 +64,7 @@ describe("OrderStatusView", () => {
     });
   });
 
-  it("shows 'Payment Failed' for payment_failed status", async () => {
+  it("shows 'PAYMENT FAILED' for payment_failed status", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ ...PAID_ORDER, status: "payment_failed" }),
@@ -72,7 +73,8 @@ describe("OrderStatusView", () => {
     render(<OrderStatusView publicOrderId="VIR-ABC123" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Payment Failed")).toBeInTheDocument();
+      const nodes = screen.getAllByText("PAYMENT FAILED");
+      expect(nodes.length).toBeGreaterThan(0);
     });
   });
 
@@ -109,7 +111,7 @@ describe("OrderStatusView", () => {
     });
   });
 
-  it("shows 'Payment Processing' for payment_processing status", async () => {
+  it("shows 'PROCESSING PAYMENT' for payment_processing status", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ ...PAID_ORDER, status: "payment_processing" }),
@@ -118,7 +120,8 @@ describe("OrderStatusView", () => {
     render(<OrderStatusView publicOrderId="VIR-ABC123" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Payment Processing")).toBeInTheDocument();
+      const nodes = screen.getAllByText("PROCESSING PAYMENT");
+      expect(nodes.length).toBeGreaterThan(0);
     });
   });
 
