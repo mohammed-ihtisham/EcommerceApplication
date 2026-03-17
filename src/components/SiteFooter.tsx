@@ -30,7 +30,7 @@ export default function SiteFooter() {
             About
           </Link>
           <Link
-            href="/#contact"
+            href="mailto:contact@vierello.com"
             className="link-underline-lr text-xs font-medium uppercase tracking-wide text-black"
           >
             Contact

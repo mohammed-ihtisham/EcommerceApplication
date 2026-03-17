@@ -111,7 +111,10 @@ export default function CartDrawer({
                   </p>
                 </div>
                 <button
-                  onClick={closeCart}
+                  onClick={() => {
+                    closeCart();
+                    router.push("/catalog");
+                  }}
                   className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-8 py-3 text-xs font-semibold uppercase tracking-wider text-gray-900 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:shadow focus-visible:outline-none"
                 >
                   Continue shopping

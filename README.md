@@ -48,7 +48,7 @@ npm run test:watch
 npm run test:coverage
 ```
 
-The test suite includes **217 tests** across **20 test files** covering:
+The test suite includes **200+ tests** across **20 test files** covering:
 
 - **Unit tests**: Money formatting, currency conversion, Zod schemas, product loading, order state machine, retry logic
 - **Service tests**: Cart validation, payment gateway SDK mapping, payment orchestration (idempotency, retries, state transitions), exchange rate fetching
@@ -65,6 +65,7 @@ Tests use [Vitest](https://vitest.dev/) with `@testing-library/react` for compon
 checkout_draft → pending_payment → payment_processing → paid
                                                        → payment_failed
                                                        → fraud_rejected
+                                                       → cancelled
 ```
 
 ### Payment Attempt States
@@ -89,24 +90,26 @@ created → confirming → processing → succeeded
 
 ```
 src/
-  app/                    # Next.js App Router pages and API routes
+  app/                         # Next.js App Router pages and API routes
     api/
-      products/           # GET - product catalog
-      cart/validate/      # POST - server-side cart validation
-      checkout/create/    # POST - create order + payment session
-      checkout/confirm/   # POST - confirm payment with token
-      orders/[id]/        # GET - order status (polling)
-      payments/webhook/   # POST - payment provider webhooks
-  components/             # React components
-  lib/                    # Utilities (prisma, money formatting, logger)
+      products/                # GET - product catalog
+      cart/validate/           # POST - server-side cart validation
+      checkout/create/         # POST - create order + payment session
+      checkout/confirm/        # POST - confirm payment with token
+      checkout/status/         # GET - order + payment status (polling)
+      orders/[publicOrderId]/  # GET - order status by public ID
+      payments/webhook/        # POST - payment provider webhooks
+      exchange-rates/          # GET - exchange rates for currency conversion
+  components/                  # React components
+  lib/                         # Utilities (prisma, money formatting, logger)
   server/
-    orders/               # State machine, queries
-    payments/             # Payment gateway wrapper
-    services/             # Business logic (cart, order, payment)
+    orders/                    # State machine, queries
+    payments/                  # Payment gateway wrapper
+    services/                  # Business logic (cart, order, payment)
 data/
-  products.json           # Product catalog (10 items, 3 currencies)
+  products.json                # Product catalog (10 items, 3 currencies)
 prisma/
-  schema.prisma           # Database schema
+  schema.prisma                # Database schema
 ```
 
 ## Resilience
