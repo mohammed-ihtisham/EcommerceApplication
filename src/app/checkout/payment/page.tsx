@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/components/CartProvider";
+import { useCurrency } from "@/components/CurrencyProvider";
 import ErrorBanner from "@/components/ErrorBanner";
 import Link from "next/link";
 import Image from "next/image";
 
 const POLL_INTERVAL_MS = 2500;
-const POLL_GIVE_UP_MS = 60000;
+const POLL_GIVE_UP_MS = 1000;
+const MAX_AUTO_RELOADS = 2;
 
 function friendlyCheckoutError(message: string, code?: string): string {
   if (code === "deferred") {
@@ -62,55 +64,123 @@ function detectCardBrand(raw: string): CardBrand {
 }
 
 export default function CheckoutPaymentPage() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const { clearCart } = useCart();
+  const { items, clearCart } = useCart();
+  const { displayCurrency } = useCurrency();
 
   const [state, setState] = useState<PaymentPageState>({ phase: "initializing" });
+  const [initNonce, setInitNonce] = useState(0);
+  const initStartedNonceRef = useRef<number | null>(null);
+  const autoReloadsRef = useRef(0);
   const [detectedBrand, setDetectedBrand] = useState<CardBrand>(null);
+  const [securityMessageIndex, setSecurityMessageIndex] = useState(0);
   const embeddedRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
   const confirmRef = useRef<
     ((orderId: string, paymentAttemptId: number, paymentToken: string) => Promise<void>) | null
   >(null);
 
+  const itemsKey = useMemo(() => {
+    return items.map((i) => `${i.productId}:${i.quantity}`).join("|");
+  }, [items]);
+
+  const payloadItems = useMemo(() => {
+    return items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
+  }, [itemsKey, items]);
+
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
   }, []);
 
-  // Bootstrap from URL params
+  // Create checkout on page entry
   useEffect(() => {
-    const orderId = searchParams.get("orderId");
-    const paymentAttemptIdParam = searchParams.get("paymentAttemptId");
-    const checkoutId = searchParams.get("checkoutId");
+    if (state.phase !== "initializing") return;
+    if (initStartedNonceRef.current === initNonce) return;
+    initStartedNonceRef.current = initNonce;
 
-    if (!orderId || !paymentAttemptIdParam) {
+    const init = async () => {
+      if (payloadItems.length === 0) {
+        setState({
+          phase: "error",
+          message: "Your cart is empty. Please return to checkout and try again.",
+          retryable: false,
+        });
+        return;
+      }
+
       setState({
-        phase: "error",
-        message: "Missing payment details. Please return to checkout and try again.",
-        retryable: false,
+        phase: "initializing",
       });
-      return;
-    }
 
-    const paymentAttemptId = Number(paymentAttemptIdParam);
-    if (Number.isNaN(paymentAttemptId)) {
-      setState({
-        phase: "error",
-        message: "Invalid payment information. Please return to checkout and try again.",
-        retryable: false,
-      });
-      return;
-    }
+      try {
+        const res = await fetch("/api/checkout/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: payloadItems,
+            displayCurrency,
+          }),
+        });
 
-    if (checkoutId) {
-      setState({ phase: "ready", orderId, checkoutId, paymentAttemptId });
-    } else {
-      setState({ phase: "polling", orderId, paymentAttemptId });
-    }
-  }, [searchParams]);
+        const data = await res.json();
+
+        if (!mountedRef.current) return;
+
+        if (!res.ok) {
+          setState({
+            phase: "error",
+            message: friendlyCheckoutError(data.error, data.code),
+            retryable: true,
+          });
+          return;
+        }
+
+        const orderId = String(data.orderId);
+        const paymentAttemptId = Number(data.paymentAttemptId);
+        if (!orderId || Number.isNaN(paymentAttemptId)) {
+          setState({
+            phase: "error",
+            message: "Invalid checkout response. Please try again.",
+            retryable: true,
+          });
+          return;
+        }
+
+        if (data.status === "ready" && data.checkoutId) {
+          setState({
+            phase: "ready",
+            orderId,
+            checkoutId: String(data.checkoutId),
+            paymentAttemptId,
+          });
+        } else if (data.status === "pending") {
+          setState({
+            phase: "polling",
+            orderId,
+            paymentAttemptId,
+          });
+        } else {
+          setState({
+            phase: "error",
+            message: "Checkout is taking longer than expected. Please try again.",
+            retryable: true,
+          });
+        }
+      } catch {
+        if (!mountedRef.current) return;
+        setState({
+          phase: "error",
+          message: "Connection error. Please try again.",
+          retryable: true,
+        });
+      }
+    };
+
+    init();
+  }, [state.phase, itemsKey, displayCurrency, initNonce, payloadItems]);
 
   // Poll for checkout ready when we only have orderId/paymentAttemptId
   useEffect(() => {
@@ -123,11 +193,18 @@ export default function CheckoutPaymentPage() {
     const poll = async () => {
       if (cancelled || !mountedRef.current) return;
       if (Date.now() - startedAt > POLL_GIVE_UP_MS) {
-        setState({
-          phase: "error",
-          message: "Setup is taking longer than usual. Please try again — no charge has been made.",
-          retryable: true,
-        });
+        if (autoReloadsRef.current < MAX_AUTO_RELOADS) {
+          autoReloadsRef.current += 1;
+          setInitNonce((n) => n + 1);
+          setState({ phase: "initializing" });
+        } else {
+          setState({
+            phase: "error",
+            message:
+              "We couldn’t finish setting up your payment. No charge has been made — please try again.",
+            retryable: true,
+          });
+        }
         return;
       }
 
@@ -328,6 +405,24 @@ export default function CheckoutPaymentPage() {
   const showSpinner =
     state.phase === "initializing" || state.phase === "polling";
 
+  const securityMessages = [
+    "We’re locking in your price and reserving your items while the payment session loads.",
+    "Your card details are handled only by our certified payment partner — we never see or store full card numbers.",
+    "If anything fails here, no charge is made and you can safely try again.",
+  ];
+
+  useEffect(() => {
+    if (!showSpinner) return;
+
+    const id = window.setInterval(() => {
+      setSecurityMessageIndex((idx) => (idx + 1) % securityMessages.length);
+    }, 2500);
+
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [showSpinner, securityMessages.length]);
+
   return (
     <div className="min-h-screen bg-[#FAFAFA] font-sans text-gray-900">
       <div className="border-b border-gray-200 bg-[#FAFAFA]">
@@ -357,7 +452,7 @@ export default function CheckoutPaymentPage() {
       </div>
 
       <main
-        className="mx-auto flex w-full max-w-[560px] flex-col gap-6 px-6 py-8 sm:px-8 lg:py-12"
+        className="mx-auto flex w-full max-w-[560px] flex-col gap-5 px-6 py-5 sm:px-8 lg:py-8"
         data-detected-brand={detectedBrand ?? ""}
       >
         {state.phase === "error" && (
@@ -367,93 +462,58 @@ export default function CheckoutPaymentPage() {
               state.retryable
                 ? () => {
                     setState({ phase: "initializing" });
-                    router.push("/checkout");
+                    setInitNonce((n) => n + 1);
                   }
                 : undefined
             }
           />
         )}
 
-        {/* --- CARD LOGOS ROW --- */}
-        <div className="flex items-center justify-center gap-2">
-          {/* Visa */}
-          <div
-            data-brand="visa"
-            className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
-          >
-            <div className="relative h-5 w-10">
-              <Image
-                src="/payment-cards/visa.svg"
-                alt="Visa"
-                fill
-                className="object-contain"
-                sizes="40px"
-                priority
-              />
-            </div>
-          </div>
-          {/* Mastercard */}
-          <div
-            data-brand="mastercard"
-            className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
-          >
-            <div className="relative h-5 w-10">
-              <Image
-                src="/payment-cards/mastercard.png"
-                alt="Mastercard"
-                fill
-                className="object-contain scale-[1.18]"
-                sizes="40px"
-                priority
-              />
-            </div>
-          </div>
-          {/* Amex */}
-          <div
-            data-brand="amex"
-            className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
-          >
-            <div className="relative h-5 w-10">
-              <Image
-                src="/payment-cards/amex.svg"
-                alt="American Express"
-                fill
-                className="object-contain scale-[1.22]"
-                sizes="40px"
-                priority
-              />
-            </div>
-          </div>
-          {/* Discover */}
-          <div
-            data-brand="discover"
-            className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
-          >
-            <div className="relative h-5 w-10">
-              <Image
-                src="/payment-cards/discover.jpg"
-                alt="Discover"
-                fill
-                className="object-contain scale-[1.28]"
-                sizes="40px"
-                priority
-              />
-            </div>
-          </div>
-        </div>
-        {/* ---------------------- */}
-
         {/* Transparent Wrapper - No background or borders, letting the SDK card breathe */}
         <div className="relative flex min-h-[340px] w-full flex-col justify-center">
-          
+
           {showSpinner && (
-            <div className="flex flex-col items-center justify-center gap-4 text-center">
-              <div className="h-px w-12 animate-pulse bg-gray-300"></div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                {state.phase === "polling"
-                  ? "Preparing Secure Checkout..."
-                  : "Initializing..."}
-              </p>
+            <div className="mb-2 flex w-full justify-center text-[11px] text-gray-500">
+              <div className="h-[427px] w-[406px] rounded-2xl bg-white px-6 pt-4 pb-6 sm:px-8 sm:pt-5 sm:pb-7 shadow-[0_18px_45px_rgba(15,23,42,0.18)] ring-1 ring-black/5">
+
+                {/* Title Skeleton */}
+                <div className="mb-5 mt-1 h-7 w-48 animate-pulse rounded-md bg-gray-200 text-left" />
+
+                <div className="space-y-3.5 text-left">
+                  {/* Card Number Skeleton */}
+                  <div className="space-y-2">
+                    <div className="h-3 w-24 animate-pulse rounded bg-gray-200" />
+                    <div className="h-12 w-full animate-pulse rounded-xl border border-gray-100 bg-gray-50/50" />
+                  </div>
+
+                  {/* Exp Month & Year Skeleton */}
+                  <div className="flex gap-4">
+                    <div className="w-1/2 space-y-2">
+                      <div className="h-3 w-20 animate-pulse rounded bg-gray-200" />
+                      <div className="h-12 w-full animate-pulse rounded-xl border border-gray-100 bg-gray-50/50" />
+                    </div>
+                    <div className="w-1/2 space-y-2">
+                      <div className="h-3 w-20 animate-pulse rounded bg-gray-200" />
+                      <div className="h-12 w-full animate-pulse rounded-xl border border-gray-100 bg-gray-50/50" />
+                    </div>
+                  </div>
+
+                  {/* CVC Skeleton */}
+                  <div className="space-y-2">
+                    <div className="h-3 w-10 animate-pulse rounded bg-gray-200" />
+                    <div className="h-12 w-full animate-pulse rounded-xl border border-gray-100 bg-gray-50/50" />
+                  </div>
+
+                  {/* Confirm Button Skeleton */}
+                  <div className="mt-8 h-12 w-full animate-pulse rounded-xl bg-blue-600/20" />
+
+                  {/* Secure Footer Skeleton */}
+                  <div className="mt-4 flex justify-center">
+                    <div className="h-3 w-48 animate-pulse rounded bg-gray-200" />
+                  </div>
+                </div>
+
+              </div>
             </div>
           )}
 
@@ -498,6 +558,85 @@ export default function CheckoutPaymentPage() {
             </div>
           )}
         </div>
+
+        {/* --- CARD LOGOS ROW (below form, fade in with form) --- */}
+        {(state.phase === "ready" || state.phase === "confirming") && (
+          <div className="mt-2 flex items-center justify-center gap-2 animate-[fadeIn_0.4s_ease-out]">
+            {/* Visa */}
+            <div
+              data-brand="visa"
+              className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
+            >
+              <div className="relative h-5 w-10">
+                <Image
+                  src="/payment-cards/visa.svg"
+                  alt="Visa"
+                  fill
+                  className="object-contain"
+                  sizes="40px"
+                  priority
+                />
+              </div>
+            </div>
+            {/* Mastercard */}
+            <div
+              data-brand="mastercard"
+              className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
+            >
+              <div className="relative h-5 w-10">
+                <Image
+                  src="/payment-cards/mastercard.png"
+                  alt="Mastercard"
+                  fill
+                  className="object-contain scale-[1.18]"
+                  sizes="40px"
+                  priority
+                />
+              </div>
+            </div>
+            {/* Amex */}
+            <div
+              data-brand="amex"
+              className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
+            >
+              <div className="relative h-5 w-10">
+                <Image
+                  src="/payment-cards/amex.svg"
+                  alt="American Express"
+                  fill
+                  className="object-contain scale-[1.22]"
+                  sizes="40px"
+                  priority
+                />
+              </div>
+            </div>
+            {/* Discover */}
+            <div
+              data-brand="discover"
+              className="flex h-9 w-14 items-center justify-center rounded-md border border-gray-200 bg-[#F8F9F8] shadow-sm transition-colors"
+            >
+              <div className="relative h-5 w-10">
+                <Image
+                  src="/payment-cards/discover.jpg"
+                  alt="Discover"
+                  fill
+                  className="object-contain scale-[1.28] mix-blend-multiply"
+                  sizes="40px"
+                  priority
+                />
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ---------------------- */}
+
+        {showSpinner && (
+          <div className="mt-0 flex flex-col items-center text-center">
+            <p className="max-w-[40ch] text-[11px] leading-relaxed text-gray-500">
+              {securityMessages[securityMessageIndex]}
+            </p>
+          </div>
+        )}
       </main>
 
       <style jsx global>{`
